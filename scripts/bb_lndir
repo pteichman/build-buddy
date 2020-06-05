@@ -1,0 +1,60 @@
+#!/usr/bin/perl 
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+@ignore_list = qw(. .. CVS);
+
+sub ln_individual_dir {
+    my $dirname = shift;
+    opendir CURDIR, $dirname;
+    my @entries = readdir CURDIR;
+    close CURDIR;
+    foreach my $entry (@entries) {
+	# ignore some common backup files
+	next if $entry =~ /~$/;
+	next if $entry =~ /^\.\#/;
+	next if $entry =~ /^\#.*\#$/;
+	next if $entry =~ /^\..*\.swp$/;
+
+	my $search = quotemeta ($entry);
+	if (!grep /$search/, @ignore_list) {
+	    my $absolute = "$dirname/$entry";
+	    if (-d $absolute) {
+		chomp (my $cwd = `pwd`);
+		mkdir $entry, 0777;
+		chdir $entry;
+		ln_individual_dir ($absolute);
+		chdir $cwd;
+	    } elsif (-l $absolute) {
+		system ("cp -f $absolute ./$entry");
+	    } else {
+		symlink "$absolute", "./$entry";
+	    }
+	    print "$dirname/$entry\n";
+	}
+    }
+    # now clean up any dead symlinks
+}
+
+if (@ARGV == 2) {
+    if (!chdir $ARGV[1]) {
+	print STDERR "Could not chdir to $ARGV[1].\n";
+	exit (1);
+    }
+} elsif (@ARGV != 1) {
+    print STDERR "usage: bb_lndir fromdir [todir]";
+}
+    ln_individual_dir ($ARGV[0]);

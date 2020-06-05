@@ -1,0 +1,324 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: bb_regenerate 3068 2005-12-22 03:41:13Z v_thunder $
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||""); $My::bin = $My::bin;
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+use strict;
+
+use Ximian::Util ':all';
+use Ximian::BB::Conf ':all';
+
+########################################################################
+
+sub usage {
+    print STDERR <<EOF;
+usage: bb_regenerate [options] patch
+    patch			patch to regenerate
+    options:
+	-D sourcedir		directory to look for patched source (src)
+	-k			use existing files when possible. don\'t get them again
+	-t target		target platform
+EOF
+    exit 1;
+}
+
+my %args;
+parse_args_set (\%args, "base");
+parse_args
+    (\%args,
+     [
+      {names => ["help", "h", "?", ""], run => \&usage},
+      {names => ["file_list",     "l"], type => "=s", default => "files-to-diff"},
+      {names => ["tmpdir",        "m"], type => "=s", default => "ximian-tmp"},
+      {names => ["sourcedir",     "D"], type => "=s", default => "src"},
+      {names => ["mod_conf_file", "f"], type => "=s", default => ""},
+      {names => ["use_existing",  "k"], default => ""},
+     ]);
+
+my $patch = shift @ARGV;
+die "bb_regenerate: no patch specified.\n" unless ($patch);
+
+my $workdir = $args{sourcedir};
+my $tmpdir = $args{tmpdir};
+
+die "directory does not exist: \"$workdir\"\n" if (not -e "$workdir");
+die "$workdir/$tmpdir already exists! aborting..\n" if (-e "$workdir/$tmpdir");
+
+# Get all the system and build information
+my  ($bb_info, $distro_info, $packsys_info, $conf) = get_all_confs (\%args);
+
+my @sources = @{$conf->{source}->{i}} if ($conf->{source} and $conf->{source}->{i});
+my @patches = @{$conf->{patch}->{i}}  if ($conf->{patch}  and $conf->{patch}->{i});
+
+unshift @patches, 'none';
+
+my $patchedto;
+if (-e "$workdir/patched-to") {
+    chomp ($patchedto = `cat $workdir/patched-to`);
+
+    # do some integrity checks on the checked out source
+    my $found;
+    foreach my $tmp (@patches) {
+	$found = 1 if ($tmp eq $patchedto);
+    }
+
+    if (not $found) {
+	$patchedto =~ /^(\S+)-\d+$/;
+
+	if (grep (m/^$1-\d+$/, @patches)) {
+	    print STDERR "failed src integrity: unknown version of $1\n";
+	    exit 1;
+	}
+	print STDERR "failed src integrity: unknown patch $patchedto\n";
+	exit 1;
+    }
+} else {
+    $patchedto = 'none';
+}
+
+# make sure the patch we want to generate ends in '.patch'
+if ($patch !~ /^\S+.patch$/) {
+    print STDERR "generated patch name must end in .patch\n";
+    exit 1;
+}
+
+my $unpackto = 'none';
+if (not grep (m/^$patch-\d+$/, @patches)) {
+    print STDERR "generating new patch: $patch\n";
+    $patchedto =~ /^(\S+)-\d+$/;
+    $unpackto = ($1 || 'none');
+} else {
+    # if the source isn't patched at least through the patch we are
+    # trying to regenerate, we have to abort.
+
+    for (my $num=0; $num<scalar(@patches); $num++) {
+	last if ($patches[$num] =~ /^$patch-\d+$/);
+	if ($patches[$num] eq $patchedto) {
+	    print STDERR "your working source must at least be patched through the one you want to\nregenerate. you only have patches through $patchedto applied\n";
+	    exit 1;
+	}
+    }
+}
+
+# find the unpacked directory the source is in
+opendir SOURCEDIR, $workdir;
+my $source;
+while ($_ = readdir SOURCEDIR) {
+    next if m/^\.+$/;
+    next if $_ eq 'patched-to';
+    $source = $_;
+}
+close SOURCEDIR;
+
+die "error making the temporary directory $workdir/$tmpdir\n"
+    unless (mkdir "$workdir/$tmpdir", 0777);
+die "error copying working directory to $tmpdir/\n"
+    if system("cp -rp $workdir/$source $workdir/$tmpdir/$source.patched");
+
+# we want to unpack the source to the patch before the one we are
+# generating
+if ($unpackto eq 'none') {
+    foreach my $tmp (@patches) {
+	last if ($tmp =~ /^$patch-\d+$/);
+	$tmp =~ /^(\S+)-\d+$/;
+	$unpackto = $1 if $1;
+    }
+}
+
+my $unpack_args = '';
+$unpack_args .= '-k' if $args{use_existing};
+my $err = system("$My::bin/bb_unpack $unpack_args -D $workdir/$tmpdir -p $unpackto");
+
+die "error unpacking\n" if ($err);
+
+rename "$workdir/$tmpdir/$source", "$workdir/$tmpdir/$source.orig";
+rename "$workdir/$tmpdir/$source.patched", "$workdir/$tmpdir/$source";
+
+# here we need to revert any patches from $source.patched that are
+# beyond the one we are regenerating.
+
+# enumerate the patches to revert
+my $found;
+my @torevert;
+foreach my $tmp (@patches) {
+    if ($found) {
+	unshift @torevert, $tmp;
+	last if ($tmp eq $patchedto);
+	next;
+    }
+    if ($tmp =~ /^$patch-\d+$/) {
+	$found = 1;
+	last if ($tmp eq $patchedto);
+    }
+}
+
+foreach my $revert (@torevert) {
+    print "to revert: $revert\n";
+}
+
+chomp (my $prevdir = `pwd`);
+foreach my $revert (@torevert) {
+    my $patchprog;
+    if (-x "/usr/local/bin/gpatch") {
+	$patchprog = "gpatch";
+    } else {
+	$patchprog = "patch";
+    }
+
+    chdir "$workdir/$tmpdir/$source";
+    $revert =~ /^(\S+)-\d+$/;
+    print STDERR "reverting patch $1.. ";
+    my $ret = system ("$patchprog -p1 -R <$prevdir/$1 >/dev/null") / 256;
+    chdir $prevdir;
+
+    if ($ret > 0) {
+	print STDERR "failed!\n";
+	exit 1;
+    } else {
+	print STDERR "ok\n";
+    }
+}
+
+my @files_to_diff;
+if (-f "$args{file_list}") {
+    print "generating patch only from files in \"$args{file_list}\"\n";
+    open LIST, "$args{file_list}" or die;
+    push @files_to_diff, $_ while (<LIST>);
+    chomp (@files_to_diff);
+    close LIST;
+}
+
+my $diffprog = (-x "/usr/local/bin/gdiff")? "gdiff" : "diff";
+pushd "$workdir/$tmpdir";
+open OUT, ">$patch.new" or die;
+
+if (scalar @files_to_diff) {
+    foreach my $file (@files_to_diff) {
+	open DIFF, "$diffprog -Nru $source.orig/$file $source/$file 2>/dev/null|" or die;
+	while (<DIFF>) { print OUT; }
+	close DIFF;
+    }
+} else {
+    open DIFF, "$diffprog -Nru -x '*~' -x '*.o' -x '*.orig' -x '*.rej' $source.orig $source |" or die;
+    while (<DIFF>) { print OUT; }
+    close DIFF;
+}
+close OUT;
+popd;
+
+rename ("$workdir/$tmpdir/$patch.new", "$patch.new");
+system ("rm -rf $workdir/$tmpdir");
+
+print "regenerated patch saved to $patch.new\n";
+
+open PATCH, "$patch.new";
+print "Patch contents:\n";
+while(<PATCH>) {
+    if (m/^Binary files \S+ and (\S+) differ$/) {
+	print "  bad patch! changed binary file: $1\n";
+    }
+    if (m/^[*+]{3}\s+(\D\S+)\s+.*$/) {
+	print "  patched file: $1\n";
+    }
+}
+close PATCH;
+
+__END__
+
+=pod
+
+=head1 NAME
+
+bb_regenerate - Generates a patch file for use in the build system.
+
+=head1 SYNOPSIS 
+
+bb_regenerate [-k] [-d sourcedir] [-t target-platform] I<patch-file>
+
+=head1 DESCRIPTION
+
+bb_regenerate is used to generate clean patch files in a multipatch
+development environment.
+
+To generate a new patch for the build system, you'll need a properly
+unpacked source directory (see the hb_unpack documentation).  Edit the
+code in src/<tardir>/.  When you are ready to create a patch, run 
+
+I<bb_regenerate patch-name.patch>
+
+from the toplevel module directory.
+
+bb_regenerate will unpack a fresh copy of the src/ directory, and
+generate a patch containing the changes to your tree.  The patch will
+be called patch-name.patch.new.  To import the patch into the repoman,
+just rename it to patch-name.patch and submit it using bb_submit.
+
+If the given patch name is the same as a patch that is already being
+applied to the source directory, it will be regenerated.  To do this,
+bb_regenerate copies your working directory to a new directory.  In
+this new directory, it reverts any patches after the one you are
+regenerating.  It then unpacks a fresh copy of the source directory,
+only applying the patches before the one you are regenerating.  It
+then generates the patch, and cleans up after itself.
+
+=head1 OPTIONS
+
+=over 4
+
+=item -k 
+
+Use existing files when possible, don't retrieve them from the
+repository.
+
+=item -D I<sourcedir>
+
+Directory to look for patched source (defaults to src/).
+
+=item -t I<target-platform> 
+
+Apply patches for a given target platform.
+
+=back
+
+=head1 AUTHORS
+
+Original code by Peter Teichman <peter@ximian.com>.
+
+Contributions by Dan Mills <thunder@ximian.com>.
+
+=head1 COPYRIGHT
+
+Copyright 2000-2001 Ximian, Inc. <distribution@ximian.com>.  All
+rights reserved.
+
+=cut

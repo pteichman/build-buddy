@@ -1,0 +1,54 @@
+#!/usr/bin/perl -w
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||""); $My::bin = $My::bin;
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+use strict;
+
+use Ximian::Util ':all';
+use Ximian::BB::Target ':all';
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Macros ':all';
+
+my %args;
+parse_args_set (\%args, "base");
+
+sub usage {
+    reportline (0, "Usage: bb_macro [-t target] [-v verbosity] macro");
+    exit 1;
+}
+
+usage unless (@ARGV);
+
+my $bbconf = get_bb_conf ();
+my $confdirs_ref = $bbconf->{dirs}->{config}->{i};
+@Ximian::BB::Globals::confdirs = macro_replace ($confdirs_ref, [$bbconf]);
+my @confs = ($bbconf);
+
+my ($packsys, $target) = $args{target}?
+    split (':', $args{target}) : detect_target ();
+$Ximian::BB::Globals::packsys = $packsys;
+$Ximian::BB::Globals::target = $target;
+
+push @confs, get_os_conf ();
+push @confs, get_module_conf ("build-buddy.conf") if -f "build-buddy.conf";
+push @confs, get_module_conf ("ximian-build.conf") if -f "ximian-build.conf"; # FIXME: legacy
+
+report (2, macro_replace ("@ARGV", \@confs) . "\n\n");
+
+exit 0;
+
+__END__

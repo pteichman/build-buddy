@@ -1,0 +1,49 @@
+#!/usr/bin/perl
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||"");
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+# This is just a small script that prints the current targetid to stdout,
+# mostly for the benefit of shell scripts.
+
+use strict;
+
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Target ':all';
+use Ximian::BB::Macros ':all';
+
+my $bbconf = get_bb_conf ();
+my $confdirs_ref = $bbconf->{dirs}->{config}->{i};
+@Ximian::BB::Globals::confdirs = macro_replace ($confdirs_ref, [$bbconf]);
+my (undef, $target) = detect_target ();
+print $target, $/;
+
+__END__

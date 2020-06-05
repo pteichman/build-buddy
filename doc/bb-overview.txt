@@ -1,0 +1,115 @@
+Ximian Build System Overview
+----------------------------
+
+* The Ximian Build System is a packaging solution
+
+At Ximian, we have been using XBS in its current incarnation for more
+than two years.  We have supported 14+ platforms concurrently, with
+80+ modules, and hundreds of thousands of users.  Our packaging team
+has never been bigger than 5 people, and currently there are only two
+full-time packagers at Ximian.  The reason we can do all of this is
+XBS.
+
+XBS is a set of utilities to create packages on Linux (RPM and deb),
+Solaris (RPM), and HP-UX (SD) systems.  Due to the differences in
+architectures, operating system versions, and packaging
+systems,packaging all of Ximian's software separately for each target
+would take an enormous amount of time.  We tried it.  It did.
+
+* XBS can use released tarballs, and CVS.
+
+XBS is capable of pulling software sources from two places:  The XBS
+repository, and CVS.  The XBS repo is a very simple software
+repository for tarballs and patches.  Each file is assigned a tag (the
+name of the file plus a serial number), which can later be used to
+retrieve the file.  It can do so using nfs, ssh, or rsync.  We use nfs
+in most cases.  When pulling sources from CVS, XBS will automatically
+make a tarball (using 'make dist'), find out the version number from
+the tarball, and proceed with the build as usual.
+
+* XBS is easy to set-up.  Getting up and making packages is easy.
+
+Installing XBS on a new build machine is a matter of installing a few
+packages.  Learning the necessary steps to go from unpackaged software
+to packages can be done in a short amount of time.  At Ximian, we have
+already written tutorials to get new developers trained fast.  When I
+joined Ximian, I was making packages for several distributions in
+about a day.
+
+* Flexible, target-independent conf files.
+
+Release engineering is a tough job.  There are many variables to keep
+track of, and each one of them can be crucial for guaranteeing a
+product's upgrade path.  Multiply these problems by a few platforms,
+and it can easily become a nightmare to maintain.  XBS hides much of
+this complexity, while still allowing for flexibility.  It does this
+by using a target-independent XML format to describe the packages.
+The XML conf files are translated to the packsys and target-specific
+configuration files during the build process.
+
+* Reproducible "jail" system.
+
+Reproducibility is paramount when it comes to building software
+packages.  XBS, when running on Linux systems, can work inside jails,
+which are independent build environments within one machine.
+
+Jails allow a single build machine to be used to build packages for
+multiple distributions of the same hardware platform, thus easing the
+resource requirements for the build farm.  Furthermore, accidents
+during building are much less likely to affect the entire build
+machine, and jails can be erased or recreated in minutes.
+
+* Extensible architecture, readable code.
+
+XBS is written in perl.  The architecture has been organized into
+several perl modules and scripts to do specific tasks.  While surely
+there are some rough spots, these are not many.  The code is generally
+clean, readable, and documented.  And extending XBS is easy once the
+code is familiar.
+
+How XBS works:
+--------------
+
+The four main building blocks of the SBS are:
+
+* bb_unpack: Retrieve source code from CVS or other repositories,
+  including patches
+* bb_do: Take a package description file and make packages from the
+  unpacked sources
+* bb_lint:  Check for possible errors or mistakes in the
+  pkg-description file, and the packages.
+* bb_build: Performs operations on groups of modules, with dependency
+  ordering
+
+Aside from source code, there are two other pieces of data necessary
+for the system to operate. These are "conf" files which describe
+packages, and "product" files, which describe groups of packages. Both
+product and conf files have extensive support for changing/overriding
+attributes of the software build process based on the platform.
+
+Out-of-band patches can be managed by the build system, by specifying
+them in the conf file.  The build tools will automatically download
+and install the required patches in the specified order.  The patch
+lists and/or their ordering can be overridden on a per-target basis.
+The build system also provides additional scripts to aid in the
+maintenance of patches.  They can be re-generated to account for
+changes in the software being patched.
+
+The basic operation of the SBS for a single software package is as
+follows:
+
+1. bb_unpack gets the sources of the module (from the repo, or from
+   cvs), as well as all the patches.  It unpacks the sources and
+   applies the patches.
+2. bb_do creates the package system-specific files (e.g., "spec" file
+   for rpm), builds, and makes the packages.
+3. bb_lint runs several automated checks on the packages to verify
+   correctness and warn of possible mistakes.
+
+To build multiple software packages, bb_build is used to automate the
+process . bb_build reads the product file, performs dependency
+ordering, and for each module, it unpacks, builds, and checks the
+packages.
+
+To build on multiple platforms, bb_build is run multiple times on the
+desired build machines.

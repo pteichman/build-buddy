@@ -1,0 +1,35 @@
+<!-- Toplevel -->
+<!ELEMENT changelog (entry+)>
+
+<!-- Container for each changelog entry -->
+<!ELEMENT entry (module,version,release,author,email,date,changes,branch?,urgency?)>
+
+<!-- Name of the module -->
+<!ELEMENT module (#PCDATA)>
+
+<!-- Module version -->
+<!ELEMENT version (#PCDATA)>
+
+<!-- Package release -->
+<!ELEMENT release (#PCDATA)>
+
+<!-- Author of changes -->
+<!ELEMENT author (#PCDATA)>
+
+<!-- Author of changes -->
+<!ELEMENT email (#PCDATA)>
+
+<!-- Date of change -->
+<!ELEMENT date (#PCDATA)>
+
+<!-- Container for list of changes -->
+<!ELEMENT changes (p*)>
+
+<!-- Paragraph item for the changes -->
+<!ELEMENT p (#PCDATA)>
+
+<!-- Branch package is destined to be in -->
+<!ELEMENT branch (#PCDATA)>
+
+<!-- Urgency of changes -->
+<!ELEMENT urgency (#PCDATA)>

@@ -1,0 +1,607 @@
+<!-- #################################################################### -->
+<!-- ##                     Home Page Description                      ## -->
+<!-- #################################################################### -->
+<?DTD2HTML -home- >
+<p>
+This document describes the individual tags of the ximian-build.conf file.
+</p>
+<!-- #################################################################### -->
+<!-- ##                      Shared Descriptions                       ## -->
+<!-- #################################################################### -->
+<?DTD2HTML packsys,os,osvers,arch >
+<p>
+The packsys->os->osvers->arch tree is deprecated for use in new conf files.  An
+old-style tree:
+</p>
+<p>
+&lt;packsys id="default"&gt;&lt;os id="default"&gt;&lt;osvers id="default"&gt;&lt;arch id="default"&gt;
+</p>
+<p>
+can now be expressed as:
+&lt;targetset&gt;&lt;filter&gt;&lt;i&gt.*&lt;/i&gt;&lt;/filter&gt;&lt;/targetset&gt;
+</p>
+<p>
+The filters in the list are regular expressions that are matched
+against the current target.  See the <a
+href="targetset.html">targetset</a> documentation for more
+information.
+</p>
+<?DTD2HTML rev,serial >
+<p>
+The &lt;rev&gt; and &lt;serial&gt; tags together determine the package
+revision.
+</p>
+<ul>
+<li>&lt;rev&gt;M&lt;/rev&gt;&nbsp;&lt;serial&gt;N&lt;/serial&gt; =&gt; <b>M.ximian.N</b></li>
+<li>&lt;rev/&gt;&nbsp;&lt;serial&gt;N&lt;/serial&gt; =&gt; <b>ximian.N</b></li>
+<li>&lt;rev&gt;M&lt;/rev&gt;&nbsp;&lt;serial/&gt; =&gt; <b>M</b></li>
+</ul>
+<p>
+Generally speaking, we set <b>rev</b> to the most recent revision of
+the package released by the distribution vendor.  <b>serial</b> is
+used as our own revision, and is incremented every time we release a
+package with the same version and rev.
+</p>
+<!-- #################################################################### -->
+<!-- ##                       Short Descriptions                       ## -->
+<!-- #################################################################### -->
+<?DTD2HTML arch+ >
+Target architecture (DEPRECATED)
+<?DTD2HTML build+ >
+A single set of packages built at one time
+<?DTD2HTML builddep+ >
+Build dependencies
+<?DTD2HTML compile+ >
+How to compile the module
+<?DTD2HTML conffiles+ >
+Configuration files included by the package
+<?DTD2HTML cvspatch+ >
+Patches to apply to a CVS version of the module
+<?DTD2HTML decl+ >
+General declaration section
+<?DTD2HTML dep+ >
+Package dependencies
+<?DTD2HTML description+ >
+Package description
+<?DTD2HTML dist+ >
+How to create a tarball from an unpacked CVS tree of the module
+<?DTD2HTML docs+ >
+Documentation files included by the package
+<?DTD2HTML epoch+ >
+Package epoch
+<?DTD2HTML files+ >
+Normal files included by the package
+<?DTD2HTML filter+ >
+List of target regexps for merging targetset info
+<?DTD2HTML h+ >
+Short description
+<?DTD2HTML i+ >
+Generic item
+<?DTD2HTML install+ >
+How to install the package from a built tree
+<?DTD2HTML l+ >
+Generic list
+<?DTD2HTML list+ >
+List declaration
+<?DTD2HTML module+ >
+The toplevel tag
+<?DTD2HTML name+ >
+Generic name
+<?DTD2HTML os+ >
+Target operating system (DEPRECATED)
+<?DTD2HTML osvers+ >
+Target operating system version (DEPRECATED)
+<?DTD2HTML p+ >
+Long description
+<?DTD2HTML package+ >
+A single package
+<?DTD2HTML packsys+ >
+Target packaging system (DEPRECATED)
+<?DTD2HTML patch+ >
+Patches to apply to un unpacked tree of the module
+<?DTD2HTML prepare+ >
+Prepare a module for building (run configure, etc)
+<?DTD2HTML psdata+ >
+Package system specific data
+<?DTD2HTML rcsid+ >
+The conf file's RCS id
+<?DTD2HTML rev+ >
+Package revision
+<?DTD2HTML script+ >
+Package system script
+<?DTD2HTML serial+ >
+Package serial (Ximian revision)
+<?DTD2HTML source+ >
+Source files to include in an unpacked tree
+<?DTD2HTML srcname+ >
+Source package name
+<?DTD2HTML tardir+ >
+Directory contained in the source tarball
+<?DTD2HTML targetset+ >
+Build data for a set of targets (replaces packsys, os, osvers, arch)
+<?DTD2HTML tarname+ >
+The name of the source tarball
+<?DTD2HTML version+ >
+Upstream package version
+<!-- #################################################################### -->
+<!-- ##                          Descriptions                          ## -->
+<!-- #################################################################### -->
+<?DTD2HTML *id >
+<p>
+This is a generic id tag. It is used to specify the type or name of
+sections of the conf file.
+</p>
+<?DTD2HTML arch >
+<?DTD2HTML arch* >
+<?DTD2HTML arch*id >
+<?DTD2HTML build >
+<p>
+A single set of packages to be built in one run of bb_do.  You can use
+different builds if you want to create packages that have different
+configure options or packaging setups.  Having a build other than
+"default" is not a frequently used feature.
+</p>
+<?DTD2HTML build* >
+<?DTD2HTML build*id >
+<?DTD2HTML builddep,dep >
+<p>
+A list of build dependencies (builddep) or runtime dependencies (dep)
+for the current set of packages.  Since the dependency types vary in
+name and semantics between packaging systems, these are implemented in
+a package system-specific manner.
+</p>
+<hr width="50%">
+<p>
+<b>RPM build dependency types:</b>
+
+<ul>
+<li><b>buildrequires:</b></li>
+
+<p><li><b>buildprereqs:</b></li>
+
+<p><li><b>buildconflicts:</b></li>
+
+</p>
+</ul>
+
+<p>
+<b>RPM dependency types:</b>
+
+<ul>
+<li><b>requires:</b></li>
+
+<p><li><b>provides:</b></li>
+
+<p><li><b>obsoletes:</b></li>
+
+<p><li><b>prereq:</b></li>
+
+<p><li><b>conflicts:</b></li>
+</ul>
+</p>
+<hr width="50%">
+<p>
+<b>DPKG build dependency types:</b>
+<ul>
+<li><b>build-depends:</b></li>
+
+<p><li><b>build-conflicts:</b></li>
+
+<p><li><b>build-depends-indep:</b></li>
+
+<p><li><b>build-conflicts-indep:</b></li>
+</p>
+</ul>
+
+<p>
+<b>DPKG dependency types:</b>
+<ul>
+<li><b>depends:</b></li>
+
+<p><li><b>pre-depends:</b></li>
+
+<p><li><b>suggests:</b></li>
+
+<p><li><b>recommends:</b></li>
+
+<p><li><b>conflicts:</b></li>
+
+<p><li><b>provides:</b></li>
+
+<p><li><b>replaces:</b></li>
+
+</ul>
+</p>
+
+<hr width="50%">
+<p>
+<b>SD build dependency types:</b>
+<p>
+We do not currently support build dependencies with SD.
+</p>
+
+<p>
+<b>SD dependency types:</b>
+<ul>
+<li><b>prerequisites</b></li>
+
+<p><li><b>corequisites</b></li>
+</ul>
+</p>
+<?DTD2HTML builddep* >
+<?DTD2HTML builddep*id >
+<?DTD2HTML compile >
+<p>
+The commands used to compile the current package.  For reasons of
+portability between packaging systems, this must be one line of text.
+If you need to run more than one command, separate them with
+semicolons.
+</p>
+<p>
+os.conf macro substitution is performed on this field.
+</p>
+<?DTD2HTML conffiles >
+<p>
+The list of configuration files to include in the current package.
+They should be absolute paths to the packaged locations of the files.
+</p>
+<p>
+A file in this list should not be listed in the &lt;files&gt; section.
+</p>
+<p>
+os.conf macro substitution is performed on this field.
+</p>
+<?DTD2HTML cvspatch >
+<p>
+The patches needed by a CVS checkout of the module.  This is a list of
+&lt;i&gt; tags, each containing the repository handle for the patch
+you wish to include.
+</p>
+<p>
+This field is only used if you have a CVS source in your sources list.
+The list of patches specified here are applied before the tarball is
+created from the CVS source.  You should only use &lt;cvspatch&gt; if
+there is some reason why a fresh CVS checkout cannot be disted without
+patching.
+</p>
+<?DTD2HTML decl > 
+<p>
+A global declaration section for the conf file.  This can define one
+or more lists.
+</p>
+<?DTD2HTML dep >
+<?DTD2HTML dep* >
+<?DTD2HTML dep*id >
+<?DTD2HTML description >
+<p>
+<b>Required contents</b>:
+<ul>
+      <li>One &lt;h&gt; element</li>
+      <li>One or more &lt;p&gt; elements</li>
+</ul>
+</p>
+
+<p>
+The &lt;h&gt; element is used as the short description or summary of a
+package in all packaging systems.
+</p>
+
+<p>
+Any &lt;p&gt; elements are concatenated together in an appropriate
+manner for the current packaging system and used as the package's long
+description.  They are considered to be separate paragraphs, so they
+are usually joined with a blank line when added to the package.
+</p>
+<?DTD2HTML dist >
+<p>
+The commands used to create a tarball for the current package.  This
+is only used in conjunction with CVS sources.  If this tag is not
+present, bb_unpack will use './autogen.sh; make dist'.
+</p>
+<p>
+os.conf macro substitution is performed on this field.
+</p>
+<?DTD2HTML docs >
+<p>
+The list of documentation files to include in the current package.
+They should be relative paths to the documents, assuming a starting
+directory of the toplevel tarball directory.
+</p>
+<?DTD2HTML epoch >
+<p>
+The package epoch.  This is an integer that is checked before the
+package version in version comparison functions.
+</p>
+<p>
+We have a policy of never introducing new epochs.  If you use this
+tag, it should only be to match the epoch on a package from another
+vendor's packages.
+</p>
+<?DTD2HTML files >
+<p>
+The list of files to include in the current package.  They should be
+absolute paths to the packaged locations of the files.
+</p>
+<p>
+os.conf macro substitution is performed on this field.
+</p>
+<?DTD2HTML filter >
+<p>
+A list of regular expressions matching the targets this
+&lt;targetset&gt; section should be applied to.
+</p>
+<p>
+You must have one targetset with a filter section matching exactly
+".*".
+</p>
+<?DTD2HTML h >
+<p>
+The &lt;h&gt; element is used as the short description or summary of a
+package in all packaging systems.
+</p>
+<?DTD2HTML i >
+<p>
+A generic item tag.  We encode a series of items as a series of
+&lt;i&gt; tags.
+</p>
+<?DTD2HTML install >
+<p>
+The commands used to install the current package to the path in
+$DESTDIR.  For reasons of portability between packaging systems, this
+must be one line of text.  If you need to run more than one command,
+separate them with semicolons.
+</p>
+<p>
+os.conf macro substitution is performed on this field.
+</p>
+<?DTD2HTML l >
+<p>
+A generic list tag.  These can be used anywhere &lt;i&gt; tags are
+accepted.
+</p>
+<p>
+To use lists, declare them in the &lt;decl&gt; section of your file.
+A list with id "foo" can be included in any group of &lt;i&gt; tags as
+&lt;l&gt;foo&lt;/l&gt;.
+</p>
+<?DTD2HTML list >
+<p>
+A list declaration.  The lists declared here can be used anywhere in
+place of an &lt;i&gt; tag.
+</p>
+<?DTD2HTML list* >
+<?DTD2HTML list*id >
+<?DTD2HTML module >
+<p>
+<b>Required contents</b>:
+<ul>
+<li>One &lt;targetset&gt; or &lt;packsys&gt;</li>
+</ul>
+</p>
+
+<p>
+A module is the toplevel element in a ximian-build.conf file.  There
+can only be one module section in a file.
+</p>
+
+<p>
+The &lt;packsys&gt; tree is deprecated at this level, though it
+remains fully supported in the tools.  New ximian-build.conf files are
+encouraged to use the &lt;targetset&gt; tag instead.
+</p>
+
+<p>
+A &lt;module&gt; can optionally contain a &lt;decl&gt; section, where
+you can declare lists of items that will be substituted in any
+&lt;i&gt; element.
+</p>
+<?DTD2HTML name >
+<?DTD2HTML os >
+<?DTD2HTML os* >
+<?DTD2HTML os*id >
+<?DTD2HTML osvers >
+<?DTD2HTML osvers* >
+<?DTD2HTML osvers*id >
+<?DTD2HTML p >
+<p>
+Any &lt;p&gt; elements are concatenated together in an appropriate
+manner for the current packaging system and used as the package's long
+description.  They are considered to be separate paragraphs, so they
+are usually joined with a blank line when added to the package.
+</p>
+<?DTD2HTML package >
+<?DTD2HTML package* >
+<?DTD2HTML package*id >
+<?DTD2HTML packsys >
+<?DTD2HTML packsys* >
+<?DTD2HTML packsys*id >
+<?DTD2HTML patch >
+<p>
+The patches needed by the module.  This is a list of &lt;i&gt; tags,
+each containing the repository handle for the patch you wish to
+include.
+</p>
+<?DTD2HTML prepare >
+<p>
+The commands used to prepare the current package for compilation.
+This is where autoconf's configure script is run.  For reasons of
+portability between packaging systems, this must be one line of text.
+If you need to run more than one command, separate them with
+semicolons.
+</p>
+<p>
+os.conf macro substitution is performed on this field.
+</p>
+<?DTD2HTML psdata >
+<p>
+Package system backend-specific data.  Here is where we put
+information that is not made abstract across all packaging systems.
+</p>
+<p>
+&lt;psdata id="foo"&gt; contains package system backend-specific data
+of type "foo".
+</p>
+
+<hr width="50%">
+
+<p>
+<b>RPM-specific types:</b>
+
+<ul>
+<li><b>buildarch:</b>
+The build architecture for this package.  It defaults to the
+current architecture, and this is usually what you want.  The case
+where you might want to use this is in building noarch packages:
+<br>
+&lt;psdata id="buildarch"&gt;noarch&lt;/psdata&gt;
+</li>
+
+<p><li><b>copyright:</b>
+The license the package is distributed under.  Most packages fall
+under one of these licenses:
+<ul>
+<li>Artistic</li>
+<li>BSD</li>
+<li>GPL</li>
+<li>LGPL</li>
+<li>Proprietary</li>
+</ul>
+</li></p>
+
+<p><li><b>group:</b>
+The software group a package is in.  These are not standardized
+across distributions, and you will want to use a valid one for your
+current platform.  To view the current list of groups on your system,
+run "rpm -qa --queryformat '%{group}\n' |sort -u".
+</li>
+</p>
+
+<p><li><b>url:</b>
+The url to the software's home page.
+</li>
+</p>
+</ul>
+
+<hr width="50%">
+<p>
+<b>DPKG-specific types:</b>
+
+<ul>
+<li><b>architecture:</b>
+The architecture this package is being built for.  A value of
+"any" will cause the current architecture to be used.  This is what
+you want in the general case.  A value of "all" will create a package
+that can be installed on all architectures, similar to an RPM "noarch"
+package.
+</li>
+
+<p><li><b>changelog:</b>
+The package's changelog file, relative to the toplevel directory
+in its tarball.  These are not include in the &lt;docs&gt; list on
+Debian, and are found in this tag instead.  You can have multiple
+changelog psdata tags in a single &lt;package&gt; section.
+</li>
+</p>
+
+<p><li><b>initmodes:</b>
+Parameters to pass to update-rc.d for init script installation.
+This is not necessary unless you have a package that needs to
+integrate with the SysVinit scripts.
+</li>
+</p>
+
+<p><li><b>priority</b>
+The system priority of the package.  This should almost always be
+"optional".
+</li>
+</p>
+
+<p><li><b>section</b>
+The system section of the package, analagous to RPM's "group" tag.
+This must be a valid section, where the set of possible sections is
+defined as "whatever is on the Debian ftp site".  To see the sections
+currently available on your system, run "grep '^Section:'
+/var/lib/dpkg/status |sort -u".
+</li>
+</p>
+</ul>
+
+<hr width="50%">
+
+<p>
+<b>SD-specific types:</b>
+<ul>
+<li><b>copyright:</b></li>
+<p><li><b>fileset_prefix:</b></li>
+<p><li><b>machine_type:</b></li>
+<p><li><b>os_release:</b></li>
+<p><li><b>os_version:</b></li>
+</ul>
+</p>
+<?DTD2HTML psdata* >
+<?DTD2HTML psdata*id >
+<?DTD2HTML rcsid >
+<p>
+The RCS id of the ximian-build.conf file.  This shouldn't be edited
+manually, though you should set it to &lt;rcsid&gt;$<!-- keep cvs from substituting here -->Id: $&lt;/rcsid&gt; if it is not set.
+</p>
+<?DTD2HTML rev >
+<?DTD2HTML script >
+<?DTD2HTML script* >
+<?DTD2HTML script*id >
+<?DTD2HTML serial >
+<?DTD2HTML source >
+<p>
+The sources needed by the module.  This is a list of &lt;i&gt; tags,
+each containing the repository handle for the source you wish to
+include.
+</p>
+<p>
+If you include more than one source here, you must also specify a
+directory to untar them in with the &lt;tardir&gt; tag.
+</p>
+<p>
+You can use a source from CVS instead of a repository handle, if you
+wish.  The format in that case is:
+<br>
+&lt;source&gt;&lt;i&gt;CVS $CVSROOT $MODULE $BRANCH&lt;i&gt;&lt;source&gt;
+<p>
+As an example:
+<br>
+&lt;source&gt;&lt;i&gt;CVS :pserver:user@cvs.gnome.org:/cvs/gnome evolution HEAD&lt;i&gt;&lt;source&gt;
+</p>
+<?DTD2HTML srcname >
+<p>
+The name of your source package, if it is something other than the
+contents of the &lt;name&gt; tag.
+</p>
+<?DTD2HTML tardir >
+<p>
+The directory your source tarball expands into, if it isn't $name-$version
+</p>
+<p>
+In multiple-tarball packages, this field is required.  The specified
+directory is created, and all source tarballs are unpacked in that
+directory.  On Debian, that directory is then tarred up to make a
+final source tarball for the package.
+</p>
+<?DTD2HTML targetset >
+<p>
+The targetset sections compose the main body of a ximian-build.conf
+file, and are the mechanism for overriding portions of the file based
+on the build target.  Each targetset has a filter associated with it,
+which is used to declare which targets the targetset is applied to.
+</p>
+<p>
+Targetsets are evaluated sequentially, with sections later in the file
+overriding portions of the ones above if the current target matches
+their filter.
+</p>
+<?DTD2HTML tarname >
+<p>
+The name of your source tarball, if it isn't $name-$version.tar.gz
+</p>
+<?DTD2HTML version >
+<p>
+This tag should contain the upstream version of the module.
+</p>

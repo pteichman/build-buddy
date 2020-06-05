@@ -1,0 +1,74 @@
+TODO list for BB
+================
+
+-> Check the roadmap document as well.
+
+Documentation:
+
+* Most libraries need more documentation.  Looking at the
+  automatically generated documentation on the BB site, many pages are
+  blank.
+* The manual needs reviewing, and possibly a quick start-up guide.
+
+Configuration:
+
+* bb.conf and friends should be in /etc (very low priority, though).
+* repodir should be settable in bb.conf for all bb apps (needs
+  coordination with the release scripts).
+
+Added features:
+
+* Migration of jobs in case of node death (hard, maybe)
+* The daemon should clean the environment a-la bb_do. (job env vars !=
+  bb_do env vars.  this is confusing/bad).
+
+* Source specification needs to change to allow svn as well.  A move
+  to a more xml-ish way of specifying the sources would be nice too.
+  See mailing list archives for more info.
+* Also, a review/modification of all the current xml tags.  Usage can
+  be confusing, specially in snapshot mode.
+** Ability to specify where the tarball (from 'make dist') will end
+   up, and what it will be called.
+** Ability to specify a command getting the version number, instead of
+   dictating it has to be in the tarball name.
+
+* full dependency-aware build api (expose bb_build functionality).
+** WebUI would need to allow the creation of a "product" instead of a
+   "job", and a more free-form build query.
+** Asking the master for a "build session" would be nice as well.
+   Then the master could lock a jail for the user and always build on
+   the same one.
+
+* Ability to click on a link to a jail in the webui (probably in the
+  node page) and have the node start an ssh server, and get redirected
+  to an ssh:// link or somesuch.  (i.e., click a link and get a login
+  prompt to a jail).
+** Needs an ssh jail module to be implemented.
+** Tie it all together with some API changes to the node/master.
+** Investigate if ssh:// links would work as expected.
+** May need some key mgmt stuff so that users can log into the jail at
+   all.
+** Need to worry a little about security here.
+
+* Jail repository, xml-rpc daemon.
+** Need some unique identifier for jails that can be extracted from
+   jail metadata.
+** Jail repository daemon would keep track of jails and their
+   versions.
+** Nodes would query the daemon and download jails as needed.
+** Jail repository daemon could have an interface for submitting a
+   jail to the repository as well.
+** It needs to be aware of arches, so that nodes that can only run
+   jails for certain arches can only acquire those.
+** Scheduling may need to change because of this.
+
+* local build node support
+** local logger
+** user-run node (root not required)
+
+Maybe:
+
+* Ability to specify where sources/patches get unpacked, as well as a
+  -p option for patches.
+* Ability to use a single file as a source (used in conjunction with
+  the previous point).

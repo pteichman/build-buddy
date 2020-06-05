@@ -1,0 +1,1695 @@
+<?xml version='1.0'?>
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.1.2//EN"
+               "http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+<!--
+To produce readable docs, use the "xmlto" utility, for example:
+
+xmlto txt bb-manual.xml
+
+Should produce bb-manual.txt.  Other formats and options are
+available, check the xmlto documentation for details.
+-->
+
+<!-- TODO:
+* Tutorial, examples
+* Webui info
+* See FIXMEs throughout the doc.
+-->
+
+<book>
+    <bookinfo>
+        <title>Build Buddy For Fun And Profit</title>
+        <authorgroup>
+            <author>
+                <firstname>Dan</firstname>
+                <surname>Mills</surname>
+                <affiliation>
+                    <address><email>thunder@ximian.com</email></address>
+                </affiliation>
+            </author>
+            <author>
+                <firstname>Mike</firstname>
+                <surname>Whitson</surname>
+            </author>
+        </authorgroup>
+        <copyright>
+            <year>2003</year>
+            <holder>Ximian, Inc.</holder>
+        </copyright>
+        <abstract>
+            <para>This manual documents the workings and usage of
+            Build Buddy, a set of tools to make packaging software
+            easier across several platforms.</para>
+        </abstract>
+    </bookinfo>
+    <chapter>
+        <title>Build Buddy Overview</title>
+        <sect1>
+            <title>Introduction</title>
+
+            <para>Build-buddy is the name for the collection of tools
+            that Ximian uses to automate the process of building and
+            packaging software.  It's not a tightly integrated system
+            - the tools are intended to be run by humans as well as by
+            other tools.  Often, if something isn't working properly,
+            or is not doing what you expect, running a lower-level
+            tool to trace the process is useful.</para>
+
+            <para>The basic watchwords of build-buddy are "automation"
+	    and "reproducibility".  build-buddy's goal is to make it
+	    possible not only to build complex software packages with
+	    a few simple commands, but to make it possible for
+	    developers creating the package to use the same process as
+	    the automatic world-building engines.  On a higher level,
+	    it is responsible for setting up and enforcing protected
+	    build areas, so a single machine can reliably build
+	    multiple copies or versions of products without stepping
+	    on anyone's toes by clobbering libraries or falling victim
+	    to version skew of installed dependencies.</para>
+
+            <para>build-buddy is documented in two primary locations:
+	    This document, and embedded documentation in the relevant
+	    scripts (primarily POD documentation in perl scripts -
+	    read it with "perldoc scriptfile").  For people who can't
+	    function without the web, there are HTMLified versions at
+<!-- FIXME: docs need to be cronned so they sync out! -->
+	    &lt;URL:http://build-buddy.org/&gt;.  It is presumed that
+	    the reader will familiarize themself with the glossary
+	    document before continuing.</para>
+        </sect1>
+        <sect1>
+            <title>The Source/Patch Repository</title>
+
+            <para>Due to the vagaries of RPM, we do not use the
+            standard CVS-based model for manipulating third-party
+            sources.  RPM insists on shipping, as part of its source
+            packages, completely pristine source packages (i.e. files
+            which have the same checksum as the ones available from
+            upstream distribution sites) and a set of individual,
+            functional patches to those sources.  This notion
+            conflicts badly with CVS' operating methodology.  (It is
+            easy to import sources on a vendor branch and maintain
+            local modifications, but separating the modifications into
+            separate, functional patches is very difficult, being a
+            potential nightmare of dependency and conflict
+            resolution.)  While there is nothing in the RPM
+            architecture which prevents us from shipping a single
+            auto-generated bulk patch (in the manner of dpkg), it was
+            decided that doing so would alienate us from portions of
+            the Linux Community.  Thus, we have a homebrewed source
+            control system which attempts to better support RPM-like
+            patch sets.</para>
+
+            <para>The BB CVS repository does not contain the actual
+            source code to packages we ship.  Instead, for each
+            module, it contains a single configuration file,
+            ximian-build.conf, which contains (among other things)
+            pointers to source and patch files in the external BB
+            repository.  See appendix for the ximian-build.conf file
+            format.</para>
+
+            <para>The BB repository is a simple archival one.  Any
+            file may be written to it, but never removed.  (Most
+            contents are large binary files, making RCS-style change
+            control not useful.)  When a file is submitted to the
+            repository, a handle is assigned based on the filename.
+            If a file has the same filename as a pre-existing file in
+            the repository, the new file will simply be assigned a
+            different handle.  Files are retrieved by handle into the
+            current working directory.  Another tool can take a set of
+            sources and patches (as enumerated in ximian-build.conf)
+            and unpack them into a src/ subdirectory of the CWD.  A
+            final tool can examine the src/ subdirectory of the CWD
+            and regenerate a specified patch, rolling any changes into
+            it.  See the POD documentation for bb_submit, bb_get,
+            bb_unpack, and bb_regenerate for invocation
+            details.</para>
+        </sect1>
+        <sect1>
+            <title>Building Packages</title>
+
+            <para>bb_do is responsible for building individual modules
+            (which may produce multiple packages).  It abstracts the
+            OS's native package system as much as possible through the
+            use of an XML-based configuration file, ximian-build.conf.
+            The file format is documented in appendix, and the
+            invocation of bb_do is documented in embedded POD
+            form.</para>
+
+            <para>bb_do works on an unpacked source tree, rooted in
+            the src/ subdir of the CWD.  In the CWD, it expects to
+            find ximian-build.conf.  When working with RPM, it also
+            expects to find the source and patch files that will be
+            packaged in the CWD.</para>
+
+            <para>If everything is set up properly, building a module
+            is as simple as running "bb_redo".  If there are problems,
+            or during development, it can often be helpful to run the
+            individual build phases separately, using (for example)
+            "bb_do dist prepare build".</para>
+        </sect1>
+        <sect1>
+            <title>Macros in the ximian-build.conf File</title>
+
+            <para>bb_do provides a rudimentary macro facility in
+            certain places.  It is intentionally not full-featured;
+            the intent is that complex logic should go into its
+            package system backends rather than into macros.  However,
+            certain sets of macros have been created to aid in making
+            ximian-build.conf somewhat more general.  Since macro
+            definitions are not a function of the file format, this
+            document can only attempt to describe current practices.
+            Macros are defined in packsys.conf and os.conf, both found
+            in /usr/share/ximian-build-system/conf, and substituted in
+            certain fields of ximian-build.conf at bb_do's runtime
+            (see the appendix for a list of where macros are
+            expanded).  Macros are referenced using the string
+            "[[macroname]]" in the relevant field.</para>
+
+            <para>Currently known macro usage includes path and prefix
+            information, common build invocations, shared library file
+            extension, ldconfig invocation, and init directory
+            information.</para>
+
+            <sect2>
+                <title>Build invocations</title>
+
+                <para>Most modules make use of [[configure]] and
+                [[install]] and their path-related variants (see
+                below).</para>
+            </sect2>
+
+            <sect2>
+                <title>Path information</title>
+
+                <para>Not only do different operating systems like to
+                put software in different places, certain OSes prefer
+                to put different types of software in different
+                places.  For example, GLib (as a system core library)
+                might be installed under /usr, GTK+ (as an X toolkit
+                library) might be installed under /usr/X11R6, and
+                GNOME (as an external package) might be installed
+                under /opt/gnome.</para>
+
+                <para>To compensate for this, there are several sets
+                of macros for different classes of software.  Each set
+                contains most of the autoconf paths which are
+                necessary to set in order to locate the module
+                properly.  There is also a corresponding [[configure]]
+                variant which includes all paths into a single
+                configure invocation.  Here are the macros for each
+                type of software:</para>
+
+                <informaltable>
+                    <tgroup cols='3'>
+                        <thead>
+                            <row>
+                                <entry>Glib</entry>
+                                <entry>GTK+</entry>
+                                <entry>GNOME</entry>
+                            </row>
+                        </thead>
+                        <tbody>
+                            <row>
+                                <entry>[[usrprefix]]</entry>                         
+                                <entry>[[x11prefix]]</entry>
+                                <entry>[[prefix]]</entry>
+                            </row>
+                            <row>
+                                <entry>[[usrsysconfdir]]</entry>
+                                <entry>[[x11sysconfdir]]</entry>
+                                <entry>[[sysconfdir]]</entry>
+                            </row>
+                            <row>
+                                <entry>[[usrmandir]]</entry>
+                                <entry>[[x11mandir]]</entry>
+                                <entry>[[mandir]]</entry>
+                            </row>
+                            <row>
+                               <entry>[[usrinfodir]]</entry>
+                               <entry>[[x11infodir]]</entry>
+                               <entry>[[infodir]]</entry>
+                            </row>
+                            <row>
+                               <entry>[[usrconfigure]]</entry>
+                               <entry>[[x11configure]]</entry>
+                               <entry>[[configure]]</entry>
+                            </row>
+                            <row>
+                               <entry>[[usrinstall]]</entry>
+                               <entry>[[x11install]]</entry>
+                               <entry>[[install]]</entry>
+                            </row>
+                        </tbody>
+                    </tgroup>
+                </informaltable>
+
+                <para>Other path macros which do not change based on
+                software type:</para>
+
+                <para>[[x11appdefaults]]</para>
+                <para>[[docdir]]</para>
+            </sect2>
+            <sect2>
+                <title>Shared library file extension</title>
+
+                <para>Most operating systems name their shared
+                libraries foo.so.  HP-UX uses foo.sl instead.  The
+                [[so]] macro expands to "so" or "sl" as appropriate,
+                for use in file lists.</para>
+            </sect2>
+
+            <sect2>
+                <title>Init directory information</title>
+
+                <para>Different operating systems' init setups may put
+                the rcN.d init directories in different places, and
+                may use different sets of runlevels for startup and
+                shutdown.  [[initdir]] expands to the path to the
+                rcN.d directories (e.g. "/etc/rc.d", "/sbin", "/etc").
+                [[rcSdirs]] expands to a space-separated list of the
+                rcN.d directories which should get software startup
+                symlinks (e.g. "rc2.d rc3.d rc4.d rc5.d"), and
+                [[rcKdirs]] expands to a space-separated list of the
+                rcN.d dirs which should get software shutdown symlinks
+                (e.g. "rc0.d rc1.d rc6.d").</para>
+            </sect2>
+        </sect1>
+        <sect1>
+            <title>Adding Modules</title>
+
+            <para>To add a new module to build-buddy, the following
+            general steps are usually necessary:</para>
+
+            <orderedlist>
+                <listitem><para>Locate the canonical upstream source
+                package, and add it to the repository using bb_submit.
+                Note the handle.</para></listitem>
+
+                <listitem><para>Create a ximian-build.conf file.  It
+                may be helpful to use the bb_xmlgen tool to create it,
+                see the embedded POD documentation for usage
+                information.</para></listitem>
+
+                <listitem><para>Add necessary patches to the repo,
+                possibly creating them using bb_regenerate.  Include
+                them in ximian-build.conf.</para></listitem>
+
+                <listitem><para>Add new module to any necessary
+                product files (see "Building Sets Of Packages"
+                below).</para></listitem>
+            </orderedlist>
+        </sect1>
+        <sect1>
+            <title>Checking For Packaging Errors</title>
+
+	    <para>With the idea of enforcing policy, and checking for
+	    common packaging errors, a package verification
+	    infrastructure (bb_lint) was created.  The bb_lint utility
+	    loads a number of tests that verify both the
+	    ximian-build.conf files, as well as the final packages.
+	    The intent is for bb_do to impose as few policy decisions
+	    as possible, and leave them to bb_lint instead.</para>
+
+	    <para>Generally speaking, there is little need to modify
+	    or disable the bb_lint checks on a per-module basis.
+	    However, this is sometimes required for certain modules.
+	    Luckily, this is not a hard task.  A new file is created
+	    in the module directory (the directory that contains the
+	    ximian-build.conf file) called BBLint.pm.  This file can
+	    add or override checks.  For an example file, see
+	    below.</para>
+
+	    <para>Sometimes a check is deemed to be important enough
+	    that it should always be run.  In this case, a new perl
+	    module is created, using the same format as the per-module
+	    override file, but it can be called anything.  By
+	    convention, the global check modules are of the form
+	    BBLint&lt;Name&gt;.pm, where &lt;Name&gt; describes the
+	    kind of checks that module provides.</para>
+
+	    <para>The check modules:</para>
+
+	    <para>For a check module to be valid, only a few
+	    requirements must be met:</para>
+
+	    <itemizedlist>
+		<listitem>
+		    <para>The module must define a package of the same
+		    name as the file name.  For example, if the file
+		    is called BBLint.pm, the package should be called
+		    BBLint.</para>
+		</listitem>
+		<listitem>
+		    <para>The package must define at least one of two
+		    functions: get_tests, and get_overrides.  These
+		    functions must return a list of hashes (see the
+		    example below).</para>
+		</listitem>
+		<listitem>
+		    <para>The file must end with '1;' on a line by
+		    itself.  This is a requirement of all perl
+		    modules.</para>
+		</listitem>
+	    </itemizedlist>
+
+	    <para>Here is an example check:</para>
+
+	    <informalexample>
+		<programlisting><![CDATA[
+package BBLint;
+
+sub get_tests {
+    return [
+            {'name' => 'silly_check',
+             'description' => "description of test",
+             'dependencies' => [ 'built_check' ]},
+           ];
+}
+
+sub do_silly_check {
+    my $name = shift;
+
+    # Run some perl code here
+
+    if ($condition) {
+        BBLintCommon::test_pass($name);
+    } else {
+        BBLintCommon::test_fail($name, "reason why test failed.");
+    }
+}
+
+1;
+]]>
+</programlisting>
+	    </informalexample>
+
+	    <para>Several things should be noted on that
+	    example:</para>
+
+	    <itemizedlist>
+		<listitem>
+		    <para>The 'dependencies' list means that
+		    sillt_check will only be run if built_check
+		    succeeds.  built_check checks that packages were
+		    produced at all.</para>
+		</listitem>
+		<listitem>
+		    <para>The function called when the test is run is
+		    always do_&lt;name of check&gt;</para>
+		</listitem>
+		<listitem>
+		    <para>Several tests can be defined, by adding more
+		    hashes to the list returned by get_tests.</para>
+		</listitem>
+		<listitem>
+		    <para>get_overrides can be used in place (or in
+		    addition to) get_tests, to replace existing
+		    checks.  This is useful, for example, to force a
+		    test to be a warning (with test_warn()) instead of
+		    a failure (test_fail()).</para>
+		</listitem>
+	    </itemizedlist>
+
+	    <para>Although not obvious, it is possible to run both
+	    test_pass() and test_fail(), both multiple times.
+	    Regardless of the order or number of times they are
+	    called, if test_fail() is ever run, the test will
+	    fail.</para>
+        </sect1>
+        <sect1>
+            <title>Building Sets Of Packages</title>
+
+            <para>While bb_do allows the creation of packages from a
+            single module, often it is necessary to work with many
+            modules at the same time.  Usually these groups of modules
+            are inter-dependent, and require building and installing
+            some before others can be built.  For this reason,
+            bb_build was created.  bb_build uses "product" files to
+            keep track of module dependencies, and features flexible
+            command-line operations that help automate many tasks that
+            work across modules.  See the appendix for the product
+            file format.</para>
+
+            <para>For more information on bb_build, read the embedded
+            POD documentation.  "bb_build -H" can be used to list the
+            available operations as well.</para>
+        </sect1>
+        <sect1>
+            <title>Using BB Client</title>
+        
+            <para>bb_client is a tool to schedule a build on a remote
+            build node.  The node will perform the requested build(s),
+            and provide the packages and build logs via a variety of
+            ways, including web, and nfs.</para>
+
+            <para>For more information, see the documentation on
+            bb_client, bb_node, bb_master, and the
+            http://build-master/ web page.</para>
+        </sect1>
+    </chapter>
+    <chapter>
+	<title>Managing Jails</title>
+	<sect1>
+	    <title>Creating New Jails</title>
+	    <para>Creating new jails is not a difficult task, although
+	    it is somewhat time-consuming.  Deciding what packages the
+	    jail will include is very important, and will greatly
+	    change depending on the intended purpose of the jail.  In
+	    this document, we will describe the general guidelines for
+	    creating build jails.  That is, jails that will be used to
+	    build software and create packages.</para>
+	    <para>For a jail to unpack using the BB tools at all, the
+	    jail must meet the following requirements:</para>
+	    <itemizedlist>
+		<listitem>
+		    <para>The jail must have no users other than the
+		    system ones (e.g., "root", "nobody", etc.), and
+		    /home should be completely empty.</para>
+		</listitem>
+		<listitem>
+		    <para>sshd must be installed for unpacking,
+		    although it is not required for use with the BB
+		    Daemon.</para>
+		</listitem>
+	    </itemizedlist>
+	    <para>It is desirable that the jails be as small as
+	    possible.  This allows for quicker unpacking, and
+	    conserves disk space.  Since jails are usually unpacked
+	    multiple times, disk space can become an important
+	    issue.</para>
+	    <para>Although the requirements above are enough for a
+	    jail to unpack cleanly, it will not necessarily be useful
+	    immediately.  While rc/rcd can be used to install any
+	    additional requirements, the most commonly used packages
+	    (including rc and rcd) should be installed in the jail to
+	    minimize prep work.  The following general requirements
+	    must be met:</para>
+	    <itemizedlist>
+		<listitem>
+		    <para>The jail must be able to run BB as easily as
+		    possible, though BB itself is not required to be
+		    in the jail.</para>
+		</listitem>
+		<listitem>
+		    <para>At least basic packages (both static and
+		    snapshot) must build cleanly without installing
+		    new software (other than bb itself).</para>
+		</listitem>
+		<listitem>
+		    <para> One must be able to build base packages
+		    (such as glib, for example) and install them,
+		    without breaking the system.</para>
+		</listitem>
+		<listitem>
+		    <para>Utilities for managing the system must be
+		    included as well.  This includes package
+		    management utilities, as well as user, network,
+		    nfs configuration.  No GUI tools are required,
+		    though (and are discouraged, in fact).</para>
+		</listitem>
+	    </itemizedlist>
+	    <para>Because of this, the following additional requirements
+	    must be met for the jail to be usable for building:</para>
+	    <itemizedlist>
+		<listitem>
+		    <para>In general, a unix-style directory tree is
+		    assumed.  In particular, /tmp, /usr, /var, /lib,
+		    and /bin should be in the jail.</para>
+		</listitem>
+		<listitem>
+		    <para>Most, if not all, distributions have the
+		    idea of "base" build-dependencies, which are
+		    generally not the same as the "base" distribution.
+		    Instead, it is a list of packages that are not
+		    listed when listing build dependencies.  These
+		    base build-dependencies must be installed in the
+		    jail.</para>
+		</listitem>
+		<listitem>
+		    <para>The following utilities must be installed:</para>
+		    <itemizedlist>
+			<listitem>
+			    <para>ssh</para>
+			</listitem>
+			<listitem>
+			    <para>cvs</para>
+			</listitem>
+			<listitem>
+			    <para>rsync</para>
+			</listitem>
+			<listitem>
+			    <para>sudo</para>
+			</listitem>
+			<listitem>
+			    <para>patch</para>
+			</listitem>
+			<listitem>
+			    <para>libtool</para>
+			</listitem>
+			<listitem>
+			    <para>autoconf</para>
+			</listitem>
+			<listitem>
+			    <para>automake</para>
+			</listitem>
+			<listitem>
+			    <para>make</para>
+			</listitem>
+			<listitem>
+			    <para>gcc</para>
+			</listitem>
+			<listitem>
+			    <para>g++</para>
+			</listitem>
+		    </itemizedlist>
+		</listitem>
+		<listitem>
+		    <para>The native package-building utilities must
+		    be available.  For example, on RPM systems, this
+		    means rpmbuild and rpm-devel.</para>
+		</listitem>
+		<listitem>
+		    <para>Perl 5.6.1 or greater must be installed, Any
+		    of the following modules that are shipped by the
+		    distribution vendor must also be installed:</para>
+		    <itemizedlist>
+			<listitem>
+			    <para>XML::Parser and its dependencies (e.g., expat)</para>
+			</listitem>
+			<listitem>
+			    <para>Storable</para>
+			</listitem>
+			<listitem>
+			    <para>MIME-Base64</para>
+			</listitem>
+			<listitem>
+			    <para>Crypt::SSLeay</para>
+			</listitem>
+		    </itemizedlist>
+		</listitem>
+		<listitem>
+		    <para>Basic GNOME dependencies that are not
+		    usually built, such as popt, libtiff, libjpeg,
+		    etc. should be available in the jail.</para>
+		</listitem>
+		<listitem>
+		    <para>Development libraries for commonly built
+		    software.  e.g., X libraries, etc. should also be
+		    available.</para>
+		</listitem>
+		<listitem>
+		    <para>In general, most of the
+		    distribution-provided GNOME packages should be
+		    removed, to avoid problems when building Ximian
+		    GNOME packages.  Only when base packages depend on
+		    GNOME packages should they be left installed
+		    (e.g., glib or gtk+).</para>
+		</listitem>
+	    </itemizedlist>
+	</sect1>
+	<sect1>
+	    <title>Updating Jails</title>
+	    <para>Jails may be updated at run-time using Red Carpet
+	    and/or by placing RPM files in the correct location on
+	    the /ximian NFS share.  However, a jail may be statically
+	    updated to avoid the performance hit of downloading and
+	    installing a lot of RPM files repeatededly.</para>
+	    <para>The example below makes several assumptions:</para>
+	    <itemizedlist>
+		<listitem>
+			<para>The build NFS shares are /nfs and /ximian.</para>
+		</listitem>
+		<listitem>
+			<para>The jail directory on the build node is /jails.</para>
+		</listitem>
+		<listitem>
+			<para>The jail being updated is called "suse-90-i586."</para>
+		</listitem>
+		<listitem>
+			<para>The user has "root" access to the build node.</para>
+		</listitem>
+	    </itemizedlist>
+	    <para>The example commands below must be modified
+	    according to the specific jail and directory names on the
+	    build node.  Steps #4 through #6 may be skipped if the root
+	    password does not need to be changed.  The port number used
+	    in step #7 is printed out as part of step #3.  Step #8 only
+	    applies if there are RPM files in the specific directory
+	    for the given target.  Steps #10 and #11 may be repeated
+	    for any number of Red Carpet channels.  The process killed
+	    in step #12 must be one created in step #9 -- there may be
+	    other rcd processes running on the machine.  The "/jails-old"
+	    directory in step #26 may be anywhere -- it is a good idea
+	    to keep the old jail until the new one has been tested
+	    thoroughly.</para>
+	    <orderedlist>
+		<listitem>
+			<para>ssh root@build-node</para>
+		</listitem>
+		<listitem>
+			<para>cd /jails</para>
+		</listitem>
+		<listitem>
+			<para>bb_jail_unpack -t suse-90-i586</para>
+		</listitem>
+		<listitem>
+			<para>chroot suse-90-i586-root-0</para>
+		</listitem>
+		<listitem>
+			<para>passwd</para>
+		</listitem>
+		<listitem>
+			<para>exit</para>
+		</listitem>
+		<listitem>
+			<para>ssh -p 20000 root@localhost</para>
+		</listitem>
+		<listitem>
+			<para>rpm -Uvh /ximian/build-daemon/rcd/suse-90-i586/*.rpm</para>
+		</listitem>
+		<listitem>
+			<para>/usr/sbin/rcd -r</para>
+		</listitem>
+		<listitem>
+			<para>rug subscribe suse-90-i586</para>
+		</listitem>
+		<listitem>
+			<para>rug update</para>
+		</listitem>
+		<listitem>
+			<para>kill [rcd-proc-id]</para>
+		</listitem>
+		<listitem>
+			<para>exit</para>
+		</listitem>
+		<listitem>
+			<para>umount suse-90-i586-root-0/nfs</para>
+		</listitem>
+		<listitem>
+			<para>umount suse-90-i586-root-0/ximian</para>
+		</listitem>
+		<listitem>
+			<para>umount suse-90-i586-root-0/proc</para>
+		</listitem>
+		<listitem>
+			<para>umount suse-90-i586-root-0/dev/pts</para>
+		</listitem>
+		<listitem>
+			<para>rm -rf suse-90-i586-root-0/home/*</para>
+		</listitem>
+		<listitem>
+			<para>rm -rf suse-90-i586-root-0/var/cache/redcarpet/</para>
+		</listitem>
+		<listitem>
+			<para>rm -rf suse-90-i586-root-0/var/lib/rcd/rollback/</para>
+		</listitem>
+		<listitem>
+			<para>vi suse-90-i586-root-0/etc/passwd</para>
+		</listitem>
+		<listitem>
+			<para>(Remove users appended by build system and save.)</para>
+		</listitem>
+		<listitem>
+			<para>cd suse-90-i586-root-0</para>
+		</listitem>
+		<listitem>
+			<para>tar zcf ../suse-90-i586-new.tar.gz *</para>
+		</listitem>
+		<listitem>
+			<para>cd ..</para>
+		</listitem>
+		<listitem>
+			<para>mv suse-90-i586.tar.gz /jails-old</para>
+		</listitem>
+		<listitem>
+			<para>mv suse-90-i586-new.tar.gz suse-90-i586.tar.gz</para>
+		</listitem>
+		<listitem>
+			<para>bb_jail_destroy suse-90-i586-root-0</para>
+		</listitem>
+	    </orderedlist>
+	</sect1>
+    </chapter>
+    <chapter>
+        <title>Installing and Configuring Build Buddy</title>
+
+        <para>These instructions are for Redhat Linux 7.3.
+        Contributions for other distributions are welcome.  If you
+        think this document is missing anything, please contact
+        thunder@novell.com.</para>
+
+        <para>There are several ways to set up and use BB.  The most
+        likely uses are:</para>
+
+        <orderedlist>
+            <listitem>
+		<para>You want to use BB to build packages.</para>
+	    </listitem>
+            <listitem>
+		<para>You want to set up a build node, to allow others
+		to build packages on your machine.</para>
+	    </listitem>
+        </orderedlist>
+
+        <para>Read on to learn how to set up BB for these tasks.  If
+        you wish to set up a BB master, or for hacking on BB, please
+        refer to the Build Buddy Developer Guide.</para>
+
+        <sect1>
+            <title>Building Packages With Build Buddy</title>
+    
+            <para>If you only want the BB utilities installed for
+            local use, simply install the ximian-build-system package,
+            available on Red Carpet.</para>
+    
+            <para>Edit the /usr/share/ximian-build-system/conf/bb.conf
+            file to set any paths particular to your installation (in
+            particular, moduledir).</para>
+    
+            <para>This will give you several useful utilities that
+            will allow you to use and maintain jails on your local
+            machine, build packages or sets of packages, as well as
+            create and maintain the package definition files.  Refer
+            to the rest of the BB documentation for more information
+            on how to use the various utilities availble.</para>
+        </sect1>
+        <sect1>
+            <title>Setting Up A New Build Node</title>
+    
+            <para>If you would like to make your computer available
+            for others to build on, you need to set up a node.
+            Setting one up is fairly painless, and you can turn it
+            on/off at will, so you can turn it off during work hours,
+            for example.</para>
+            
+            <para>To set up a node, you should do the
+            following:</para>
+            
+            <orderedlist>
+                <listitem>
+		    <para>Make sure you have plenty of space
+		    available.  In particular, /jails needs at least a
+		    few GB available.</para>
+		</listitem>
+		<listitem>
+		    <para>Install the node:  rc install
+		    /nfs/users/thunder/build-system/rpm/node/*</para>
+		</listitem>
+                <listitem>
+		    <para>Start up the node daemon:
+		    /etc/init.d/bb_node start</para>
+		</listitem>
+		<listitem>
+		    <para>Add jail tarballs to /jails.</para>
+		</listitem>
+            </orderedlist>
+            
+            <para>Jail tarballs are complete distributions tarred up.
+            So you can, for example, provide a mandrake 8.0 jail, even
+            if you run Debian woody.</para>
+            
+            <para>To add a jail, simply copy the tarball of the
+            desired distribution to /jails/.  Restarting bb_node is
+            not required, the new jail will be useful
+            immediately.</para>
+        </sect1>
+        <sect1>
+            <title>Setting Up A New Build Master</title>
+
+            <para>Setting up a master is not necessary (or
+            recommended) for end users, only one master is necessary.
+            You should only set up an extra build master if you wish
+            to maintain a set of build nodes separate from the
+            rest.</para>
+            
+            <para>The default build master in the packages is the host
+            "build-master".  If you plan to have a different master,
+            you should make new packages with the appropriate default,
+            or edit the /usr/share/ximian-build-system/conf/bb.conf
+            file on each node to point to the correct hostname.</para>
+            
+            <orderedlist>
+                <listitem>
+                    <para>Make sure you have plenty of space
+                    available.  You'll need a few MB on /usr, at least
+                    30 MB on /var (for the database), and if you plan
+                    on having a node as well, then plenty on /jails as
+                    well.</para>
+                </listitem>
+                <listitem>
+                    <para>Install the build system packages, you will
+                    need at least the ximian-build-master package,
+                    though you should install all the available
+                    packages if you plan to run a node as well.</para>
+
+                    <para>Note that several dependencies will be
+                    pulled in, including postgresql and a web
+                    server.</para>
+
+                    <para>Your web server should support cgi.  Apache
+                    will work well (it is what we test with), and it
+                    is available from the redhat-73-i386 RC
+                    channel.</para>
+
+                    <para>You may want to set up a redirect to
+                    automatically move users to the report.cgi script.
+                    Using apache, this is done with the Redirect
+                    configuration option (e.g., "Redirect /index.html
+                    http://build-master/cgi-bin/bb").  See your web
+                    server's documentation for details.</para>
+                </listitem>
+                <listitem>
+                    <para>Start up the various daemons.  Run the
+                    following commands as root.  Use <command>su
+                    -</command>, not <command>sudo</command>:</para>
+                    <simplelist>
+                        <member><command>/etc/init.d/postgres start</command></member>
+                        <member><command>/etc/init.d/httpd start</command></member>
+                        <member><command>/etc/init.d/bb_master start</command></member>
+                        <member><command>/etc/init.d/bb_node start</command></member>
+                    </simplelist>
+                </listitem>
+            </orderedlist>
+        </sect1>
+    </chapter>
+    <chapter>
+        <title>Troubleshooting</title>
+
+        <sect1>
+            <title>Using Build Buddy on Debian Systems</title>
+
+            <para>The Helix GNOME build system makes use of the Debian
+            debian/rules file whenever possible.  However, it requires
+            certain local changes.</para>
+            
+            <para>The following targets must exist, and correspond to
+            the "do" steps of the same name:</para>
+            
+            <informalexample>
+                <programlisting>prepare, build, install, package</programlisting>
+            </informalexample>
+            
+            <para>The file must respect the environment variables
+            $ARCHIVEDIR (the location to install binary .debs) and
+            $MODNAME (the name of the module being built, for source
+            trees such as glib that produce multiple modules).  It is
+            recommended that these variables have make defaults that
+            correspond to the Debian build system, e.g.</para>
+
+            <informalexample>
+                <programlisting>ARCHIVEDIR?=..
+MODNAME?=glib</programlisting>
+            </informalexample>
+            
+            <para>The debian/rules file should also contain the
+            following targets, as per the normal debian build
+            system:</para>
+            
+            <informalexample>
+                <programlisting>clean, binary, binary-arch, binary-indep</programlisting>
+            </informalexample>
+
+            
+            <para>It is recommended that these simply call the targets
+            used by the Helix GNOME system.</para>
+        </sect1>
+        <sect1>
+            <title>Getting More Help</title>
+
+            <para>See the Build Buddy website for more documentation
+            and pointers for help: http://build-buddy.org/
+            (http://primates.ximian.com/~thunder/bb/).  From there,
+            you can find links to the BB mailing lists, which are a
+            good place to ask any questions in.</para>
+
+            <para>There are man pages for many bb tools, automatically
+            generated from perldoc.  For a listing of them, see the
+            appendix to this manual.</para>
+        </sect1>
+        <sect1>
+            <title>Reporting Bugs / Requesting Features</title>
+
+            <para>If you have found a bug, or would like a new
+            feature, please report it to the internal Ximian bug
+            tracker:</para>
+
+            <para>http://bugzilla.ximian.com/</para>
+
+            <para>We do appreciate it if you try to search the
+            database first, in case it has already been
+            reported.</para>
+        </sect1>
+    </chapter>
+    <glossary>
+        <glossentry>
+            <glossterm>product</glossterm>
+            <glossdef><para>A set of packages built from a set of
+            modules that are distributed as a seperate entity.
+            For example, Ximian GNOME, Red Carpet betas, Evolution
+            Snapshots.</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>distro</glossterm>
+            <glossdef><para>The distribution name, such as Red
+            Hat, SuSE, etc.  Distro names are always represented
+            in the build system as all-lowercase strings with
+            spaces removed, such as caldera, redhat, turbolinux,
+            etc.</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>osvers</glossterm>
+            <glossdef><para>The version of the distribution.  This
+            is represented in the build system as all the digits
+            in the distribution version with any decimal points
+            removed.  (This is misnamed, it should be called
+            distrovers, and might be changed in the
+            future).</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>arch</glossterm>
+            <glossdef><para>The architecture being built for, such
+            as i386, sparc, etc.</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>target</glossterm>
+            <glossdef><para>A distribution/version/arch tuple.
+            For example, redhat-62-i386 or linuxppc-2000-ppc.  We
+            use targets to uniquely identify the platforms we
+            build for.</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>packsys</glossterm>
+            <glossdef><para>The underlying packaging system, such
+            as rpm, dpkg, pkg_add, etc.</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>build</glossterm>
+            <glossdef><para>A set of several mutually incompatible
+            configuration options, and/or patches to a particular
+            module.  A product will only normally only include one
+            build of a given module.  For example, when gtkhtml
+            was built without bonobo support for red-carpet, but
+            with bonobo support for evolution, that should have
+            been implemented with different
+            builds.</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>package</glossterm>
+            <glossdef><para>A binary package created by the
+            underlying packaging system.  For example,
+            libgnome32_1.2.11-ximian.1_i386.deb,
+            xmms-gnome-1.2.4-0_helix_1.i386.rpm.  Compare
+            "module"</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>module</glossterm>
+            <glossdef><para>A module in ximian cvs that will be
+            used to generate a set of packages with bb_do.  These
+            modules typically correspond to a single source
+            tarball.  For example, gnome-libs,
+            xmms.</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>version</glossterm>
+            <glossdef><para>The version of a package.  For
+            example, 1.2.11.</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>revision string</glossterm>
+            <glossdef><para>The string that denotes individual
+            releases of a package within a single version of the
+            package.  For example, ximian.4.</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>rev/serial</glossterm>
+            <glossdef>
+                <para>These two fields in the xml are combined to
+                form the revision string using the following
+                rules:</para>
+
+                <itemizedlist>
+                    <listitem>
+			<para>If only rev is given, it will be used as
+			the revision string.</para>
+		    </listitem>
+                    <listitem>
+			<para>If only the serial is given, the string
+			returned will be ximian.serial.</para>
+		    </listitem>
+                    <listitem>
+			<para>If both rev and serial are given, the
+			string returned will be
+			rev.ximian.serial.</para>
+		    </listitem>
+                </itemizedlist>
+            </glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>repoman</glossterm>
+            <glossdef><para>The repository where upstream tarballs
+            and internal patches are stored.</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>build node</glossterm>
+            <glossdef><para>A physical machine used by the build
+            system.  Also known as a "build engine".</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>jail</glossterm>
+            <glossdef><para>An environment in which builds occur.
+            Currently implemented as a chroot.</para></glossdef>
+        </glossentry>
+        <glossentry>
+            <glossterm>jail image</glossterm>
+            <glossdef><para>The os image used to generate a fresh
+            jail.</para></glossdef>
+        </glossentry>
+    </glossary>
+    <appendix>
+        <title>Scripts And Manual Pages</title>
+
+        <para>The following user-runnable scripts are included with
+        Build Buddy, and include POD documentation, available as man
+        pages as well:</para>
+<!-- FIXME: need more scripts / pages here! (can we automate this list?) -->
+        <simplelist type='vert' columns='3'>
+            <member>bb_do</member>
+            <member>bb_build</member>
+            <member>bb_unpack</member>
+            <member>bb_submit</member>
+            <member>bb_regenerate</member>
+            <member>bb_get</member>
+            <member>bb_node</member>
+            <member>bb_master</member>
+            <member>bb_jail</member>
+        </simplelist>
+
+        <para>The following developer interfaces are also
+        documented:</para>
+
+        <simplelist type='vert' columns='3'>
+            <member>(3) Ximian::BB::Status</member>
+            <member>(3) Ximian::Sys</member>
+        </simplelist>
+    </appendix>
+    <appendix>
+        <title>Build Buddy Configuration Files</title>
+
+<!-- FIXME:
+* Short intro here for all the conf files.
+* what about the dtd docs (.desc & friends)?
+-->
+
+        <sect1>
+            <title>bb.conf</title>
+            
+            <para>bb.conf contains configuration information used by
+            all of BB.  This includes information about the packager
+            (to be embedded in packages), and information about paths,
+            etc.  It also includes a section destined for the bb
+            daemon.  This file is located in srcdir/conf
+            (/usr/share/ximian-build-system/conf when installed via
+            packages).</para>
+        </sect1>
+        <sect1>
+            <title>ximian-build.conf</title>
+            
+            <para>ximian-build.conf is used primarily by bb_do, but
+            also referenced by the BB repository as well as sundry
+            other scripts which need module-specific configuration
+            information.  It theoretically should contain all the
+            information necessary for bb_do to build and package a
+            module for all systems.  In practice, there are a couple
+            cases (mainly Debian) where there is some unimplemented
+            functionality such that external files must be
+            maintained.</para>
+            
+            <para>It will be helpful to refer to a sample
+            ximian-build.conf, such as the version for glib or gtk+
+            (or at least helix-build.dtd) while reading this document
+            for the first time.  A template ximian-build.conf can be
+            obtained by running the bb_xmlgen command.</para>
+
+            <para>The toplevel element of ximian-build.conf is
+            &lt;module&gt;.  Under that, ximian-build.conf implements
+            a simple defaults-inheritance system through the
+            &lt;targetset&gt; sections.  Each targetset contains a
+            &lt;filter&gt; section, which specifies which targets to
+            apply the contained settings to.  Targetsets are evaluated
+            top-down (lower targetsets override the upper ones).  The
+            topmost targetset *must* contain a filter that matches any
+            target:
+            &lt;filter&gt;&lt;i&gt;.*&lt;/i&gt;&lt;/filter&gt;, this
+            is called the "default" targetset.</para>
+
+            <para>Ideally, as much information as possible will go
+            into the common "default" tree; the intent is to minimize
+            duplication of information as much as possible.  The only
+            thing that should go into the specific overrides is
+            information which is completely unsuitable for common use.
+            In particular, beware of version/rev/serial numbers
+            scattered throughout override trees!</para>
+            
+            <para>The build and packaging settings contained under
+            targetset are as follows:</para>
+<!-- FIXME: describe builddep, nofiles -->
+            <itemizedlist>
+                <listitem>
+                    <para>&lt;rcsid&gt;: Holds the RCS ID of
+                    ximian-build.conf.  There should be one in every
+                    package, for fingerprinting source
+                    packages.</para>
+                </listitem>
+                <listitem>
+                    <para>&lt;name&gt;: The "master" name of the
+                    package.  This is *not* necessarily the same as
+                    the CVS module name (which is taken from the name
+                    of the cwd).  Its exact semantics depend on the
+                    package system backend:</para>
+
+                    <itemizedlist>
+                        <listitem>
+                            <para>rpm: name of the default binary
+                            package</para>
+                        </listitem>
+                        <listitem>
+                            <para>dpkg: name of the master
+                            package</para>
+                        </listitem>
+                        <listitem>
+                            <para>sd: used indirectly in
+                            module-specific paths
+                            (e.g. /opt/gnome/src/$name)</para>
+                        </listitem>
+                    </itemizedlist>
+                </listitem>
+                <listitem>
+                    <para>&lt;srcname&gt;: The name component of the
+                    source distribution archive (tarball); may be
+                    different from &lt;name&gt; if necessary.</para>
+                </listitem>
+                <listitem>
+                    <para>&lt;tardir&gt;: (optional) Set if the name
+                    of the unpacked source directory is not
+                    $srcname-$version.  Note, however, that this can't
+                    be used for CVS snapshots.</para>
+                </listitem>
+                <listitem>
+                    <para>&lt;tarname&gt;: (optional) Set if the name
+                    of the source tarfile is not $tardir.tar.gz.  This
+                    also can't be used for CVS snapshots.</para>
+                </listitem>
+                <listitem>
+                    <para>&lt;source&gt;: Contains a list of
+                    &lt;i&gt;...&lt;/i&gt; entities, each of which
+                    contains the name of a source tarball or CVS
+                    source entity.</para>
+
+                    <para>CVS sources are described as follows:</para>
+
+                    <para>CVS cvsroot module tag package</para>
+
+                    <itemizedlist>
+                        <listitem>
+                            <para>CVS: The string must begin with
+                            "CVS", literally.  All in caps, and at the
+                            very beginning of the string.</para>
+                        </listitem>
+                        <listitem>
+                            <para>cvsroot: The CVS root server,
+                            including the username.  i.e.,
+                            "user@server:/directory".  It may be
+                            useful to use environment variable
+                            expansion for the username.  For example,
+                            "{{CVSUSER}}@cvs-server.mydomain:/cvs/root".
+                             This way, different users can set the
+                             CVSUSER environment variable before
+                             running bb_unpack.</para>
+                        </listitem>
+                        <listitem>
+                            <para>module: The name of the cvs module
+                            to check out.</para>
+                        </listitem>
+                        <listitem>
+                            <para>tag:  A tag or branch name.  Use
+                            "HEAD" to indicate the head of the trunk
+                            (i.e., the latest revision, not from any
+                            branch).</para>
+                        </listitem>
+                        <listitem>
+                            <para>package:  This last item is used to
+                            locate the tarball created by "make dist"
+                            (see the dist tag).  If omitted, it
+                            defaults to the cvs module name.  It does
+                            not have to be set to the entire tarball
+                            name--only the "name" portion of
+                            it.</para>
+                        </listitem>
+                    </itemizedlist>
+                </listitem>
+                <listitem>
+                    <para>&lt;patch&gt;: Contains a list of
+                    &lt;i&gt;...&lt;/i&gt; entities, each of which
+                    contains the name of a patch file to apply
+                    sequentially to the unpacked sources.</para>
+                </listitem>
+                <listitem>
+                    <para>&lt;version&gt;: The upstream version of the
+                    package.  This tag gets ignored when checking
+                    sources out of CVS.</para>
+                </listitem>
+                <listitem>
+                    <para>&lt;rev&gt; and &lt;serial&gt;: These two
+                    tags together set the revision string for the
+                    generated packages.  Some combination of these
+                    tags is required.  If both are present, the
+                    revision string is set to "rev.shortname.serial"
+                    (see bb.conf for the definition of shortname).  If
+                    only &lt;rev&gt; is present, the revision string
+                    is set to the contents of &lt;rev&gt; verbatim.
+                    If only &lt;serial&gt; is present, the revision
+                    string is set to "shortname.serial".
+                    "rev.shortname.serial" is the accepted idiom for
+                    allowing native system updates to override our
+                    packages, with &lt;rev&gt; corresponding to the
+                    native OS's revision.  &lt;serial&gt; corresponds
+                    to the local build revision.</para>
+                </listitem>
+                <listitem>
+                    <para>&lt;epoch&gt;: (optional) If set, sets the
+                    epoch of the packages to the referenced string.
+                    Use with care.</para>
+                </listitem>
+                <listitem>
+                    <para>&lt;psdata id="foo"&gt;: (optional) Contains
+                    package system backend-specific data of type
+                    "foo".  See bb_do's POD documentation for a
+                    complete list of required and optional
+                    information, and where it goes.  &lt;psdata&gt;
+                    can be found in lots of places in the XML
+                    tree. </para>
+                </listitem>
+                <listitem>
+                    <para>&lt;build id="foo"&gt;: In addition to these
+                    per-module configuration directives, &lt;arch&gt;
+                    contains one or more &lt;build&gt; entities, each
+                    with a different "id" attribute.  &lt;build
+                    id="default"&gt; is required; others may be added.
+                    Which &lt;build&gt; information is used is
+                    determined by the -b flag to bb_do; no flag
+                    indicates that "default" will be used.  Under
+                    &lt;build&gt; are the following tags:</para>
+
+                    <itemizedlist>
+                        <listitem>
+                            <para>&lt;dist&gt;:  In CVS snapshot mode,
+                            this is the command that is run to produce
+                            a tarball of the sources.  By default, it
+                            is the same as the &lt;prepare&gt; rule,
+                            but with "configure" substituted with
+                            "autogen" (following the GNOME build
+                            standard).  Note that this tag is only
+                            used by bb_unpack, and is unrelated to the
+                            "dist" step of bb_do.</para>
+                        </listitem>
+                        <listitem>
+                            <para>&lt;prepare&gt;:  Contains the shell
+                            commands (with [[macro]] expansions)
+                            necessary to prepare the source tree for
+                            compilation.  These are the commands
+                            executed during "bb_do prepare".  This
+                            field must not contain any newline
+                            characters, due to the manner in which it
+                            is substituted into various package
+                            systems' configuration files.  Multiple
+                            commands should be entered on a single
+                            line using the shell ';' character.</para>
+                        </listitem>
+                        <listitem>
+                            <para>&lt;compile&gt;: Contains the shell
+                            commands (with [[macro]] expansions)
+                            necessary to compile the sources.  These
+                            are the commands executed during "bb_do
+                            build".  Must not contain newline
+                            characters, as &lt;prepare&gt;.</para>
+                        </listitem>
+                        <listitem>
+                            <para>&lt;install&gt;: Contains the shell
+                            commands (with [[macro]] expansions)
+                            necessary to install the binaries to
+                            $DESTDIR.  These are the commands executed
+                            during "bb_do build".  Must not contain
+                            newline characters, as
+                            &lt;prepare&gt;.</para>
+                        </listitem>
+                        <listitem>
+                            <para>&lt;unstripped/&gt;: If present,
+                            files will not be stripped.  Supported
+                            under rpm and dpkg.</para>
+                        </listitem>
+                        <listitem>
+                            <para>&lt;psdata id="foo"&gt;: (optional)
+                            As above.</para>
+                        </listitem>
+                        <listitem>
+                            <para>&lt;package id="foo"&gt;: Each
+                            &lt;build&gt; must contain one more more
+                            &lt;package&gt; entities.  &lt;package
+                            id="default"&gt; is required; others may
+                            be added.  Each &lt;package&gt; represents
+                            a separate binary package; there may be
+                            different breakdowns of files into
+                            packages under different package system
+                            backends.  Each &lt;package&gt; entity
+                            contains the following tags:</para>
+
+                            <itemizedlist>
+                                <listitem>
+                                    <para>&lt;name&gt;: Sets the
+                                    external name of the relevant
+                                    binary package.  Will probably be
+                                    different for different package
+                                    systems.</para>
+                                </listitem>
+                                <listitem>
+                                    <para>&lt;files&gt;: Contains an
+                                    ordered list of
+                                    &lt;i&gt;...&lt;/i&gt; elements,
+                                    each of which enumerates an entry
+                                    in the package file list.  Entries
+                                    have [[macro]] expansion
+                                    performed.  Each entry has the
+                                    semantics of the relevant package
+                                    system, so it may be necessary to
+                                    use different lists for different
+                                    systems, even if the actual list
+                                    of files is the same.</para>
+                                </listitem>
+                                <listitem>
+                                    <para>&lt;conffiles&gt;: Similar
+                                    to &lt;files&gt;, except that
+                                    files listed here are marked as
+                                    configuration files to the
+                                    underlying package system.</para>
+                                </listitem>
+                                <listitem>
+                                    <para>&lt;docs&gt;: Contains an
+                                    ordered list of
+                                    &lt;i&gt;...&lt;/i&gt; elements,
+                                    each of which enumerate a
+                                    documentation file from the
+                                    module's source tree (not
+                                    $DESTDIR!) which is to be included
+                                    in the package.</para>
+                                </listitem>
+                                <listitem>
+                                    <para>&lt;script id="foo"&gt;:
+                                    (optional) Contains an ordered
+                                    list of &lt;i&gt;...&lt;/i&gt;
+                                    elements, each of which enumerate
+                                    a line or chunk of a package
+                                    script of type "foo".  Script
+                                    entries have [[macro]] expansion
+                                    performed.  The script types are
+                                    independent of the backend system;
+                                    the currently supported script
+                                    types are "postinst" and "postrm".
+                                    There may be only one script of
+                                    each type in each package.</para>
+                                </listitem>
+                                <listitem>
+                                    <para>&lt;description&gt;:
+                                    Contains a single
+                                    &lt;h&gt;...&lt;/h&gt; entity, and
+                                    an arbitrary number of ordered
+                                    &lt;p&gt;...&lt;/p&gt; entities.
+                                    The &lt;h&gt; entry contains short
+                                    (1-line) summary of the package
+                                    contents; each &lt;p&gt; entity
+                                    contains a longer descriptive
+                                    paragraph, which will be formatted
+                                    appropriately.</para>
+                                </listitem>
+                                <listitem>
+                                    <para>&lt;dep id="foo"&gt;:
+                                    (optional) Contains an ordered
+                                    list of &lt;i&gt;...&lt;/i&gt;
+                                    elements, each of which enumerates
+                                    a dependency entry of type "foo"
+                                    for the current package system.
+                                    The supported dependency types
+                                    depend on the package system
+                                    backend, and are documented in the
+                                    POD docs in bb_do.  Semantics of
+                                    the entries are also specific to
+                                    the package system; it is
+                                    necessary to write separate
+                                    &lt;dep&gt; lists for each package
+                                    system.</para>
+                                </listitem>
+                                <listitem>
+                                    <para>&lt;psdata id="foo"&gt;:
+                                    (optional) As above.</para>
+                                </listitem>
+                            </itemizedlist>
+                        </listitem>
+                    </itemizedlist>
+                </listitem>
+            </itemizedlist>
+
+<!-- FIXME: Need more docs on decl here -->
+            <para>It is also possible to declare macros and lists in a
+            &lt;decl&gt; structure, which can be placed either under
+            &lt;module&gt;, or &lt;targetset&gt;.  This is normally
+            only required for advanced / specific uses.</para>
+        </sect1>
+        <sect1>
+            <title>os.conf</title>
+            
+            <para>build/conf/os.conf is a global configuration file
+            for the core BB tools.  It contains information specific
+            to different operating systems.  See packsys.conf for
+            information specific to package systems.  Under the base
+            entity &lt;conf&gt;, there is a three-level defaults
+            hierarchy of &lt;os&gt;, &lt;osvers&gt;, and &lt;arch&gt;.
+            &lt;packsys&gt; is not included.  These defaults work
+            similarly to those in ximian-build.conf, with one slight
+            exception.  There must be a fully-qualified (down to
+            &lt;arch&gt;) tree for each supported target, containing
+            at least the following tags:</para>
+
+            <para>These are used by build-buddy in the determination
+            of the current target, which is why they must be under a
+            fully qualified tree (e.g. &lt;os
+            id="redhat"&gt;&lt;osvers id="62"&gt;&lt;arch
+            id="i386"&gt;):</para>
+
+            <itemizedlist>
+                <listitem>            
+                    <para>&lt;description&gt;: A short
+                    human-reasonable description of the target,
+                    e.g. "Red Hat Linux 6.2 / i386", "HP-UX 11i /
+                    PA-RISC".</para>
+                </listitem>
+                <listitem>
+                    <para>&lt;data id="guess_re"&gt;: A perl regular
+                    expression which, compared against the output of
+                    distribution.guess, is sufficient to uniquely
+                    identify the relevant target.</para>
+                </listitem>
+            </itemizedlist>
+
+            <para>Aside from these, under &lt;arch&gt; (with normal
+            defaulting rules) is a set of entities:</para>
+
+            <itemizedlist>            
+                <listitem>
+                    <para>&lt;packsys&gt;: The name of the package
+                    system backend that bb_do will use when building
+                    packages for this target.</para>
+                </listitem>
+                <listitem>
+                    <para>&lt;path id="foo"&gt;: (optional) Defines
+                    the path named "foo" for use at run-time by bb_do.
+                    These paths undergo perl variable substitution at
+                    runtime - "*variablename*" in the path is replaced
+                    with the contents of that perl variable.
+                    Currently understood paths are:</para>
+
+                    <itemizedlist>
+                        <listitem>
+                            <para>default: Runtime $PATH used by bb_do
+                            while building.  Should include basic
+                            system utilities, compiler, and our GNOME
+                            location</para>
+                        </listitem>
+                        <listitem>
+                            <para>ld_library: Runtime $LD_LIBRARY_PATH
+                            (or SHLIB_PATH under HP-UX) used by bb_do
+                            while building.  Should contain system, X,
+                            and our GNOME libraries.</para>
+                        </listitem>
+                        <listitem>
+                            <para>cc: Fully-qualified path to our
+                            preferred compiler.</para>
+                        </listitem>
+                    </itemizedlist>
+                </listitem>
+                <listitem>
+                    <para>&lt;macro id="foo"&gt;: (optional) Defines a
+                    [[macro]] for substitution at package-creation
+                    time by bb_do.  See ximian-build.conf section for
+                    a listing of where expansion happens.  The list of
+                    macros is not mandated by build-buddy, and may be
+                    in flux.</para>
+                </listitem>
+                <listitem>
+                    <para>&lt;data id="foo"&gt;: (optional) Defines
+                    other arbitrary key-tagged data with key "foo" for
+                    the package system backend.  Aside from the
+                    special "guess_re" (detailed above), the following
+                    data ids are currently useful:</para>
+
+                    <itemizedlist>
+                        <listitem>
+                            <para>cppflags: (optional) Preprocessor
+                            flags used during compilation (used to set
+                            include paths)</para>
+                        </listitem>
+                        <listitem>
+                            <para>ldflags: (optional) Linker flags
+                            used during compilation (used to set
+                            library paths that aren't picked up by
+                            LD_LIBRARY_PATH).</para>
+                        </listitem>
+                    </itemizedlist>
+                </listitem>
+            </itemizedlist>
+        </sect1>
+        <sect1>
+            <title>packsys.conf</title>
+            
+            <para>build/conf/packsys.conf defines package
+            system-specific configuration information.  Under the
+            top-level &lt;conf&gt; element is a 1-level default "tree"
+            (&lt;packsys id="default"&gt; and specific packsys tags).
+            Under &lt;packsys&gt; are the following elements:</para>
+
+            <itemizedlist>
+                <listitem>            
+                    <para>&lt;dir id="foo"&gt;: (optional) Defines
+                    directories used by package system.  These undergo
+                    *perlvar* substitution at runtime.  Currently
+                    understood dirs are:</para>
+
+                    <itemizedlist>
+                        <listitem>            
+                            <para>build: Directory where compilation
+                            is actually performed.</para>
+                        </listitem>            
+                        <listitem>            
+                            <para>tmpinst: Directory to do a temporary
+                            install in preparation for creating binary
+                            packages.</para>
+                        </listitem>
+                    </itemizedlist>
+                </listitem>
+                <listitem>
+                    <para>&lt;psdata id="foo"&gt;: (optional)
+                    Arbitrary package system-specific data.  Currently
+                    understood tags are:</para>
+
+                    <itemizedlist>
+                        <listitem>
+                            <para>ignore_re: Shell-escaped perl
+                            regular expression used by the dpkg
+                            backend to determine which files to
+                            exclude from the generated Debian source
+                            package diff.</para>
+                        </listitem>
+                    </itemizedlist>
+                </listitem>
+                <listitem>
+                    <para>&lt;macro id="foo"&gt;: (optional) Same as
+                    &lt;macro&gt; in os.conf.</para>
+                </listitem>            
+            </itemizedlist>
+        </sect1>
+        <sect1>
+            <title>product definition files</title>
+            
+            <para>bb_build uses product definition files to control
+            the build process.  These files give bb_build dependency
+            and build information, and define what is considered part
+            of the distribution.</para>
+            
+            <para>The product definition file has a list of modules
+            and their dependencies.  A module definition looks like
+            this:</para>
+            
+            <informalexample>
+                <programlisting>
+&lt;module&gt;
+    &lt;name&gt;module-name&lt;/name&gt;
+    &lt;location&gt;module-dir&lt;/location&gt;
+    &lt;platforms&gt;platform-spec&lt;/platforms&gt;
+    &lt;deps&gt;
+        &lt;i&gt;dep-1&lt;/i&gt;
+        &lt;i&gt;dep-2&lt;/i&gt;
+    &lt;/deps&gt;
+&lt;/module&gt;
+                </programlisting>
+            </informalexample>
+            
+            <para>module-name is the name of the module (evolution,
+            gnome-pilot, etc).</para>
+            
+            <para>module-dir is the directory where the module is
+            stored (helix-core, helix-apps, etc) [there is no real
+            reason why this isn't part of module-name, it should
+            probably be merged in].</para>
+            
+            <para>platform-spec defines the platforms for which this
+            module should be built. A complete explanation of platform
+            specs is below.</para>
+            
+            <para>deps is a list of build dependencies.  These must be
+            modules that exist elsewhere in the definition
+            file.</para>
+            
+            <para>The product definition file makes use of platform
+            specifications.  These descriptions are a shorthand way of
+            referring to a set of targets.  You start with an empty
+            set.  You can add a platform to the spec using +, remove
+            one with a -.  + is assumed for the first member of the
+            specification.  You can add the set of all targets by
+            using the word 'all'.  For example:</para>
+
+	    <programlisting>all,-redhat-62-i386,-redhat-9-i386</programlisting>
+
+            <para>will build all platforms but redhat 6.2 and 9.</para>
+            
+            <para>You don't need to specify the entire target.  You
+            can use either distro-osvers-arch, distro-osvers, or
+            distro.  For example:</para>
+            
+            <programlisting>all,-redhat,+redhat-62</programlisting>
+            
+            <para>will build on all platforms except redhat systems
+            that aren't version 6.2.</para>
+            
+            <programlisting>redhat,+suse,-suse-64 </programlisting>
+            
+            <para>will build on all redhat platforms, and all suse
+            platforms except SuSE 6.4.</para>
+        </sect1>
+    </appendix>
+</book>
+
+<!--
+Local Variables:
+mode: sgml
+sgml-indent-step: 4
+End:
+-->

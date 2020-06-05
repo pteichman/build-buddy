@@ -1,0 +1,103 @@
+# PSF file for packaging gettext/glib/gtk+ into a bundle, for HP's ESI
+# people.
+
+# $Id: gtk-support.psf 3068 2005-12-22 03:41:13Z v_thunder $
+
+# To package:
+#	Build packages with bb_do, which creates a working depot under $ARCHIVEDIR
+#	swpackage -x compress_files=true -x compression_type=gzip -x compress_cmd=/usr/contrib/bin/gzip -x reinstall_files=true -s gtk-support.psf @ working-depot
+#	swpackage -x media_type=tape -x reinstall_files=true -s working-depot @ depot-file.depot
+
+vendor
+	tag		HP
+	title		Hewlett-Packard Company
+	description     "Hewlett-Packard Company"
+end
+
+bundle
+	tag		B6848AA     # Assigned by HP for this bundle - don't change!
+	title		GTK+ Support Libraries for HP-UX 11.00
+	description	"This bundle includes the GNU Gettext internationalization library, the
+GLib utility library, and the GDK and GTK+ graphics and widget
+libraries.  These are required by any application which uses GTK+,
+including the GNOME desktop and Netscape 6."
+	revision	1.1.2
+	architecture	HP-UX_B.11.00_32/64
+	vendor_tag	HP
+	machine_type	*
+	os_name		HP-UX
+	os_release	?.11.*
+	os_version	*
+	category_tag	HPUXAdditions
+	category_title	Additional HP-UX Functionality
+	is_protected	FALSE
+	is_reference	TRUE
+# "title" here should not be longer than 14 chars!
+	hp_ii		"factory_integrate=TRUE;
+			title=GTK+-support;
+			desktop=FALSE;
+			load_with=all"
+	hp_srdo		swtype=I;user=B;bundle_type=C
+	contents	Gettext.GETTEXT-MAN,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	Gettext.GETTEXT-MSG,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	Gettext.GETTEXT-NOTES,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	Gettext.GETTEXT-PRG,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	Gettext.GETTEXT-SHLIBS,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	Gettext.GETTEXT-SRC,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GLib.GLIB-MAN,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GLib.GLIB-NOTES,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GLib.GLIB-PRG,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GLib.GLIB-SHLIBS,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GLib.GLIB-SRC,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-MAN,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-MSG,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-NOTES,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-PRG,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-RUN,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-SHLIBS,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-SRC,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+end
+
+bundle
+	tag		B6848AA     # Assigned by HP for this bundle - don't change!
+	title		GTK+ Support Libraries for HP-UX 11i
+	description	"This bundle includes the GNU Gettext internationalization library, the
+GLib utility library, and the GDK and GTK+ graphics and widget
+libraries.  These are required by any application which uses GTK+,
+including the GNOME desktop and Netscape 6."
+	revision	1.1.2
+	architecture	HP-UX_B.11.11_32/64
+	vendor_tag	HP
+	machine_type	*
+	os_name		HP-UX
+	os_release	B.11.11
+	os_version	*
+	category_tag	HPUXAdditions
+	category_title	Additional HP-UX Functionality
+	is_protected	FALSE
+	is_reference	TRUE
+# "title" here should not be longer than 14 chars!
+	hp_ii		"factory_integrate=TRUE;
+			title=GTK+-support;
+			desktop=FALSE;
+			load_with=all"
+	hp_srdo		swtype=I;user=B;bundle_type=C
+	contents	Gettext.GETTEXT-MAN,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	Gettext.GETTEXT-MSG,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	Gettext.GETTEXT-NOTES,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	Gettext.GETTEXT-PRG,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	Gettext.GETTEXT-SHLIBS,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	Gettext.GETTEXT-SRC,r=0.10.35.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GLib.GLIB-MAN,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GLib.GLIB-NOTES,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GLib.GLIB-PRG,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GLib.GLIB-SHLIBS,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GLib.GLIB-SRC,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-MAN,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-MSG,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-NOTES,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-PRG,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-RUN,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-SHLIBS,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+	contents	GTK+.GTK+-SRC,r=1.2.8.2,a=HP-UX_B.11.00_32/64,v=HP
+end

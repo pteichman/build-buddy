@@ -1,0 +1,180 @@
+<!-- helix-build.dtd -->
+<!-- A DTD for ximian-build.conf files -->
+
+<!-- module: The toplevel tag. All other tags are contained under this
+             one.
+-->
+<!ELEMENT module (decl?,(targetset|packsys)*)>
+
+<!-- targetset: The targetset sections compose the main body of a ximian-build.conf
+                file, and are the mechanism for overriding portions of
+                the file based on the build target.  Each targetset
+                has a filter associated with it, which is used to
+                declare which targets the targetset is applied to.
+                There must be at least one targetset, and it must have
+                a filter section that matches exactly ".*".
+-->
+<!ELEMENT targetset (filter,rcsid?,name?,version?,epoch?,rev?,serial?,srcname?,
+                     tardir?,tarname?,psdata*,source?,patch?,cvspatch?,build*)>
+
+<!-- decl: General declaration section.  It is optional. -->
+<!ELEMENT decl (list*,macro*)>
+
+<!-- list: A list declaration.  The lists declared here can be used
+           anywhere in place of an <i> tag.
+           id - A name for the list, so it can be referenced in l
+           entries later
+-->
+<!ELEMENT list (i*,l*)>
+<!ATTLIST list	 id	CDATA #REQUIRED>
+
+<!-- packsys: The <packsys> tree is deprecated, though it
+              remains fully supported in the tools.  New
+              ximian-build.conf files are encouraged to use the
+              <targetset> tag instead.
+              id - Either "default", or a packaging system name.
+              e.g., "rpm", "dpkg".
+-->
+<!ELEMENT packsys (os+)>
+<!ATTLIST packsys id      CDATA #REQUIRED>
+
+<!-- os: The distro name the contained metadata applies to.
+         id - Either "default", or a distro name.  e.g., "suse",
+         "sles", "fedora", "solaris".
+-->
+<!ELEMENT os (osvers+)>
+<!ATTLIST os      id      CDATA #REQUIRED>
+
+<!-- osvers: The distro version the contained metadata applies to.
+             osvers - Either "default", or a bb-style  distro version
+             (no dots).  e.g., "6", "73", "80", "potato".
+-->
+<!ELEMENT osvers (arch+)>
+<!ATTLIST osvers  id      CDATA #REQUIRED>
+
+<!-- arch: The distro architecture the contained metadata applies to.
+           id - Either "default", or the architecture, e.g. "i386",
+           "sparc", "ppc"
+-->
+<!ELEMENT arch      (rcsid?,name?,version?,epoch?,rev?,serial?,srcname?,
+                     tardir?,tarname?,psdata*,source?,patch?,cvspatch?,build*)>
+<!ATTLIST arch    id      CDATA #REQUIRED>
+
+
+<!-- Tags under <targetset> -->
+
+
+<!-- psdata: Package system backend-specific data.  Here is where we put
+             information that is not made abstract across all
+             packaging systems.
+             id - The name of the datum.
+-->
+<!ELEMENT psdata (#PCDATA)>
+<!ATTLIST psdata  id      CDATA #REQUIRED>
+
+<!-- rcsid: rcs id of the package configuration file The RCS id of the
+            ximian-build.conf file.  This shouldn't be edited
+            manually, though you should set it to <rcsid>$Id:
+            $</rcsid> if it is not set.
+-->
+<!ELEMENT rcsid   (#PCDATA)>
+
+<!-- name: name of the overall module, e.g. "gtk+", "memprof" -->
+<!ELEMENT name   (#PCDATA)>
+
+<!-- version: version of the package, e.g. "1.2.8" -->
+<!ELEMENT version   (#PCDATA)>
+
+<!-- epoch: epoch assigned to our packages -->
+<!ELEMENT epoch     (#PCDATA)>
+
+<!-- revision: revision of our package, e.g. "0_helix_1" -->
+<!ELEMENT rev       (#PCDATA)>
+
+<!-- serial: serial number of our package - this is the helix
+             revision.
+-->
+<!ELEMENT serial    (#PCDATA)>
+
+<!-- srcname: name of the source package; used by some systems when naming 
+              redisted tarfiles
+-->
+<!ELEMENT srcname (#PCDATA)>
+
+<!-- tardir: set if the unpacked dir isn't $srcname-$version -->
+<!ELEMENT tardir (#PCDATA)>
+
+<!-- tarname: set if the tarfile isn't $tardir.tar.gz -->
+<!ELEMENT tarname (#PCDATA)>
+
+<!-- source: source items for the package -->
+<!ELEMENT source (i*)>
+
+<!-- patch: patch items for the package -->
+<!ELEMENT patch  (i*,l*)>
+
+<!-- cvspatch: patch items for the package, to be applied before
+               autogen is run on cvs builds
+-->
+<!ELEMENT cvspatch  (i*)>
+
+<!-- build: bla bla
+            id - Either "default", or a string assigned to this build.
+-->
+<!ELEMENT build     (name?,prepare?,dist?,compile?,install?,builddep*,nofiles*,package*)>
+
+
+<!-- Tags under <build> -->
+
+
+<!ELEMENT prepare (#PCDATA)>
+<!ELEMENT dist (#PCDATA)>
+<!ELEMENT compile (#PCDATA)>
+<!ELEMENT install (#PCDATA)>
+<!ELEMENT package (name?,psdata*,dep*,files?,conffiles?,docs?,script*,description?)>
+
+<!ATTLIST package id      CDATA #REQUIRED>
+<!ATTLIST build   id      CDATA #REQUIRED>
+
+<!ELEMENT dep      (i*,l*)>
+<!ATTLIST dep     id      CDATA #REQUIRED>
+
+<!ELEMENT builddep  (i*,l*)>
+<!ATTLIST builddep  id      CDATA #REQUIRED>
+
+<!-- nofiles: Files we don't want to package -->
+<!ELEMENT nofiles  (i*,l*)>
+<!ATTLIST nofiles  id      CDATA #REQUIRED>
+
+<!ELEMENT files    (i*,l*)>
+<!ELEMENT conffiles (i*)>
+<!ELEMENT docs     (i*)>
+<!ELEMENT script   (i*)>
+<!ATTLIST script  id      CDATA #REQUIRED>
+
+<!ELEMENT filter   (i*,l*)>
+
+<!-- i: A generic 'item' -->
+<!ELEMENT i       (#PCDATA)>
+
+<!-- l: A reference to a list, as defined in decl.  Can generally be
+substituted for (and only for) an <i> element. -->
+<!ELEMENT l       (#PCDATA)>
+
+<!ELEMENT description (h,p+)>
+<!ELEMENT h       (#PCDATA)>
+<!ELEMENT p       (#PCDATA)>
+
+
+
+<!-- Entities -->
+<!-- This DTD defines the lt, gt, amp, apos, and quot entities.
+     These entities should be predefined, but emacs' xml-mode needs
+     them anyway.
+-->
+<!ENTITY lt     "&#38;#60;">
+<!ENTITY gt     "&#62;">
+<!ENTITY amp    "&#38;#38;">
+<!ENTITY apos   "&#39;">
+<!ENTITY quot   "&#34;">
+

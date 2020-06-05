@@ -1,0 +1,22 @@
+<!ELEMENT snaps (snap+)>
+
+<!ELEMENT snap (channel?,cvsroot?,cvsmodule?,cvsversion?,targets,modules)>
+<!ATTLIST snap id CDATA #REQUIRED>
+
+<!ELEMENT cvsroot (#PCDATA)>
+<!ELEMENT cvsmodule (#PCDATA)>
+
+<!ELEMENT targets (i+)>
+<!ELEMENT modules (module+)>
+<!ELEMENT module (name,channel?,cvsroot?,cvsmodule?,cvsversion?,snapshot?)>
+
+<!ELEMENT name (#PCDATA)>
+<!ELEMENT channel (#PCDATA)>
+<!ELEMENT pipeline_channel (#PCDATA)>
+<!ELEMENT cvsroot (#PCDATA)>
+<!ELEMENT cvsmodule (#PCDATA)>
+<!ELEMENT cvsversion (#PCDATA)>
+<!ELEMENT snapshot (#PCDATA)>
+
+<!ELEMENT i (#PCDATA)>
+

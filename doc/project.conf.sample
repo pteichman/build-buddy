@@ -1,0 +1,260 @@
+<?xml version = "1.0" ?>
+
+<project>
+    <targetset>
+        <filter><i>.*</i></filter>
+
+        <source type="svn">
+            <url>svn+ssh://v_thunder@forgesvn1.novell.com/svn/ximian-bb/trunk</url>
+        </source>
+
+        <dir id="checkoutdir">[[pwd]]</dir>
+        <dir id="confsdir">[[checkoutdir]]/external-deps</dir>
+
+        <!-- rug is here -->
+        <env id="PATH">/opt/novell/zenworks/bin:{{PATH}}</env>
+
+	<rcd>
+            <use_system>1</use_system>
+	    <var id="debug-level">4</var>
+	    <var id="require-verified-certificates">false</var>
+	    <var id="require-signatures">false</var>
+            <service id="1">
+                <url>https://pipeline.boston.ximian.com/data</url>
+                <activation/>
+            </service>
+	    <subscribe/>
+            <update/>
+	</rcd>
+
+        <builddep/>
+
+        <rce_submit>
+            <server>distro@pipeline.boston.ximian.com</server>
+            <user>distro</user>
+            <password>Nahn4dum</password>
+            <channel><i>test</i></channel>
+            <target><i>[[target]]</i></target>
+            <description>Automated build</description>
+            <importance>suggested</importance>
+        </rce_submit>
+
+	<module id="build-buddy">
+            <dir id="moduledir">[[checkoutdir]]/build-buddy</dir>
+	    <deps>
+		<i>perl-data-uuid</i>
+		<i>perl-time-hires</i>
+		<i>perl-time-piece</i>
+		<i>perl-frontier-rpc</i>
+		<i>perl-xml-simple</i>
+		<i>perl-xml-xpath</i>
+                <i>perl-proc-processtable</i>
+                <i>perl-class-accessor</i>
+                <i>perl-class-dbi-abstractsearch</i>
+                <i>perl-class-whitehole</i>
+                <i>perl-html-mason</i>
+                <i>perl-error</i>
+                <i>perl-rpc-xml</i>
+	    </deps>
+	</module>
+	<module id="release">
+	    <deps>
+		<i>perl-crypt-ssleay</i>
+		<i>perl-mime-base64</i>
+		<i>perl-storable</i>
+		<i>perl-timedate</i>
+		<i>perl-xml-simple</i>
+	    </deps>
+	</module>
+	<module id="perl-sql-abstract"/>
+	<module id="perl-class-accessor"/>
+	<module id="perl-class-data-inheritable"/>
+	<module id="perl-class-trigger">
+	    <deps>
+                <i>perl-class-data-inheritable</i>
+            </deps>
+	</module>
+	<module id="perl-class-whitehole"/>
+	<module id="perl-html-mason">
+	    <deps>
+                <i>perl-exception-class</i>
+                <i>perl-devel-stacktrace</i>
+                <i>perl-params-validate</i>
+                <i>perl-class-container</i>
+                <i>perl-cache-cache</i>
+                <i>libapreq</i>
+            </deps>
+	</module>
+	<module id="perl-exception-class"/>
+	<module id="perl-devel-stacktrace">
+	    <deps>
+                <i>perl-module-build</i>
+            </deps>
+	</module>
+	<module id="perl-module-build"/>
+	<module id="perl-params-validate"/>
+	<module id="perl-class-container">
+	    <deps>
+                <i>perl-params-validate</i>
+            </deps>
+	</module>
+	<module id="perl-cache-cache">
+	    <deps>
+                <i>perl-error</i>
+                <i>perl-digest-sha1</i>
+            </deps>
+	</module>
+	<module id="libapreq"/>
+	<module id="perl-dbix-contextualfetch"/>
+	<module id="perl-ima-dbi">
+	    <deps>
+                <i>perl-dbix-contextualfetch</i>
+            </deps>
+	</module>
+	<module id="perl-universal-moniker"/>
+	<module id="perl-class-dbi">
+	    <deps>
+                <i>perl-class-trigger</i>
+                <i>perl-ima-dbi</i>
+                <i>perl-universal-moniker</i>
+            </deps>
+	</module>
+	<module id="perl-class-dbi-abstractsearch">
+	    <deps>
+                <i>perl-class-dbi</i>
+                <i>perl-sql-abstract</i>
+            </deps>
+	</module>
+	<module id="perl-proc-processtable"/>
+	<module id="perl-crypt-ssleay"/>
+	<module id="perl-data-uuid"/>
+	<module id="perl-frontier-rpc"/>
+	<module id="perl-mime-base64"/>
+	<module id="perl-storable"/>
+	<module id="perl-timedate"/>
+	<module id="perl-xml-simple"/>
+	<module id="perl-xml-xpath"/>
+        <module id="perl-time-hires"/>
+        <module id="perl-time-piece"/>
+        <module id="perl-error"/>
+        <module id="perl-mail-sendmail"/>
+        <module id="perl-digest-sha1"/>
+        <module id="perl-rpc-xml"/>
+    </targetset>
+
+    <targetset>
+        <filter><i>sles-9</i></filter>
+	<module id="perl-mime-base64" disabled="yes"/>
+        <module id="perl-time-hires" disabled="yes"/>
+        <module id="perl-storable" disabled="yes"/>
+	<module id="ximian-bb">
+	    <deps>
+		<i>perl-data-uuid</i>
+		<i>perl-time-piece</i>
+		<i>perl-frontier-rpc</i>
+		<i>perl-xml-simple</i>
+		<i>perl-xml-xpath</i>
+                <i>perl-proc-processtable</i>
+                <i>perl-class-accessor</i>
+                <i>perl-class-dbi-abstractsearch</i>
+                <i>perl-class-whitehole</i>
+                <i>perl-html-mason</i>
+                <i>perl-error</i>
+                <i>perl-rpc-xml</i>
+	    </deps>
+	</module>
+	<module id="release">
+	    <deps>
+		<i>perl-crypt-ssleay</i>
+		<i>perl-xml-simple</i>
+	    </deps>
+	</module>
+	<module id="perl-html-mason">
+	    <deps>
+                <i>perl-exception-class</i>
+                <i>perl-devel-stacktrace</i>
+                <i>perl-params-validate</i>
+                <i>perl-class-container</i>
+                <i>perl-cache-cache</i>
+            </deps>
+	</module>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse-91</i></filter>
+	<module id="perl-mime-base64" disabled="yes"/>
+        <module id="perl-time-hires" disabled="yes"/>
+        <module id="perl-storable" disabled="yes"/>
+	<module id="ximian-bb">
+	    <deps>
+		<i>perl-data-uuid</i>
+		<i>perl-time-piece</i>
+		<i>perl-frontier-rpc</i>
+		<i>perl-xml-simple</i>
+		<i>perl-xml-xpath</i>
+                <i>perl-proc-processtable</i>
+                <i>perl-class-accessor</i>
+                <i>perl-class-dbi-abstractsearch</i>
+                <i>perl-class-whitehole</i>
+                <i>perl-html-mason</i>
+                <i>perl-error</i>
+                <i>perl-rpc-xml</i>
+	    </deps>
+	</module>
+	<module id="release">
+	    <deps>
+		<i>perl-crypt-ssleay</i>
+		<i>perl-xml-simple</i>
+	    </deps>
+	</module>
+	<module id="perl-html-mason">
+	    <deps>
+                <i>perl-exception-class</i>
+                <i>perl-devel-stacktrace</i>
+                <i>perl-params-validate</i>
+                <i>perl-class-container</i>
+                <i>perl-cache-cache</i>
+            </deps>
+	</module>
+    </targetset>
+
+    <targetset>
+        <filter><i>rhel-21as-i386</i></filter>
+	<module id="perl-mime-base64" disabled="yes"/>
+	<module id="release">
+	    <deps>
+		<i>perl-crypt-ssleay</i>
+		<i>perl-storable</i>
+		<i>perl-timedate</i>
+		<i>perl-xml-simple</i>
+	    </deps>
+	</module>
+    </targetset>
+
+    <targetset>
+        <filter><i>fedora-2</i></filter>
+	<module id="release">
+	    <deps>
+		<i>perl-crypt-ssleay</i>
+		<i>perl-timedate</i>
+		<i>perl-xml-simple</i>
+	    </deps>
+	</module>
+	<module id="perl-html-mason">
+	    <deps>
+                <i>perl-exception-class</i>
+                <i>perl-devel-stacktrace</i>
+                <i>perl-params-validate</i>
+                <i>perl-class-container</i>
+                <i>perl-cache-cache</i>
+            </deps>
+	</module>
+    </targetset>
+</project>
+
+
+<!--
+Local Variables:
+mode: xml
+End:
+-->

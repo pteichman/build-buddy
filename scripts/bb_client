@@ -1,0 +1,568 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: bb_client 3080 2006-01-05 01:10:21Z v_thunder $
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||""); $My::bin = $My::bin;
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+use strict;
+use RPC::XML;
+use RPC::XML::Client;
+
+use Ximian::Util ':all';
+use Ximian::Run ':all';
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Macros ':all';
+use Ximian::BB::Target ':all';
+use Ximian::BB::Status ':all';
+use Ximian::SimpleTable;
+
+########################################################################
+
+my %args;
+my @modules;
+
+########################################################################
+
+sub usage {
+    print STDERR <<EOF;
+usage: bb_client [-H host] [-P port] [--cleanup]
+                 [--query <ping|version|load|targets>] [--synchronous]
+                 module1 [module2] [...]
+EOF
+    exit 1;
+}
+
+parse_args_set (\%args, "base");
+parse_args
+    (\%args,
+     [
+      {names => ["help",  "h",  "?",  ""], run => \&usage},
+      {names => ["nodeid",           "n"], type => "=s", default => ""},
+      {names => ["project",          "p"], type => "=s", default => "project.conf"},
+      {names => ["sync",             "s"], default => 0},
+      {names => ["server_sync",         ], default => 0},
+
+      {names => ["query",            "q"], type => "=s", default => ""},
+      {names => ["logs",             "l"], type => "=s", default => ""},
+      {names => ["files",            "f"], type => "!", default => 0},
+      {names => ["unpack",           "u"], type => "!", default => 0},
+      {names => ["destroy",          "d"], type => "!", default => 0},
+      {names => ["jail_set",         "S"], type => "!", default => 0},
+      {names => ["node_start"           ], type => "!", default => 0},
+      {names => ["node_stop"            ], type => "!", default => 0},
+      {names => ["cleanup",          "c"], default => 0},
+
+      {names => ["use_existing", "e"], default => 0},
+      {names => ["backwards",    "B"], default => 0},
+      {names => ["do_left",      "L"], default => 0},
+      {names => ["do_center",    "C"], default => 0},
+      {names => ["do_right",     "R"], default => 0},
+      {names => ["operations",   "o"], type => "=s", default => "build"},
+      {names => ["start_at",     "m"], type => "=s", default => ""},
+      {names => ["on_error"       ], type => "=s", default => "abort"},
+     ]);
+
+my $bbconf = get_bb_conf ();
+my $confdirs_ref = $bbconf->{dirs}->{config}->{i};
+@Ximian::BB::Globals::confdirs = macro_replace ($confdirs_ref, [$bbconf]);
+
+my ($packsys, $target) = $args{target}?
+    split (':', $args{target}) : detect_target ();
+$Ximian::BB::Globals::packsys = $packsys;
+$Ximian::BB::Globals::target = $target;
+
+my $osconf = get_os_conf ();
+my $pconf = get_project_conf ($args{project});
+
+$Ximian::BB::Globals::confs = [$pconf, $osconf, $bbconf];
+
+unless ($args{nodeid}) {
+    $args{nodeid} = (macro_replace ("[[nodeid]]") || "localhost:9000");
+}
+my $node_host = $args{nodeid};
+my $node_port = 9000;
+if ($node_host =~ s/:(\d+)$//) { $node_port = $1; }
+
+my $rpc = RPC::XML::Client->new ("http://$node_host:$node_port/RPC2");
+
+########################################################################
+
+sub build {
+    my (@modules) = @_;
+    my $raw;
+    open PRJ, $args{project}
+      or die "Could not read project file \"$args{project}\"";
+    $raw .= $_ while (<PRJ>);
+    close PRJ;
+
+    my $opts = {sync         => $args{server_sync},
+                verbosity    => $args{verbosity},
+                use_existing => $args{use_existing},
+                backwards    => $args{backwards},
+                do_left      => $args{do_left},
+                do_center    => $args{do_center},
+                do_right     => $args{do_right},
+                operations   => $args{operations},
+                start_at     => $args{start_at},
+                conffile     => $args{conffile},
+                on_error     => $args{on_error}};
+    my $ret;
+    eval {
+        $ret = $rpc->send_request ("build", $raw, $args{operations},
+                                   \@modules, $opts);
+        die "Error: $ret" unless ref $ret;
+        die "Error: " . $ret->string if is_fault $ret;
+        reportline (4, "Return value: ", $ret->value);
+        $ret = $ret->value;
+        if ($args{sync}) {
+            reportline (1, "Sync mode not implemented yet");
+        }
+    };
+    if (my $e = $@) {
+        reportline (1, "Could not start job: $e");
+        exit 1;
+    }
+    return $ret;
+}
+
+sub query {
+    my ($query, @foo) = @_;
+
+    if ($query eq 'status') {
+        unless (@foo) {
+            reportline (1, "No jobid given");
+            exit 1;
+        }
+        eval {
+            my $ret = $rpc->send_request ("status", $foo[0]);
+            die "Error: $ret" unless ref $ret;
+            die "Error: " . $ret->string if is_fault $ret;
+            reportline (4, "Return value: ", $ret->value);
+            $ret = $ret->value;
+            reportline (2, "Job $foo[0]: $ret");
+        };
+        if (my $e = $@) {
+            if ($e =~ /Invalid jobid./) {
+                reportline (1, "Job $foo[0]: Invalid jobid.");
+            } else {
+                reportline (1, "Error getting status for job $foo[0]: $e");
+            }
+        }
+    } elsif ($query eq 'targets') {
+        my $ret = $rpc->send_request ("targets");
+        die "Error: $ret" unless ref $ret;
+        die "Error: " . $ret->string if is_fault $ret;
+        reportline (4, "Return value: ", $ret->value);
+        my $targets = $ret->value;
+	if (scalar @$targets == 1) {
+	    reportline (2, "Target: @$targets");
+        } elsif (scalar @$targets) {
+	    reportline (2, "Targets:");
+	    reportline (2, "  $_") foreach (sort @$targets);
+	}
+    } elsif ($query eq 'source-jails') {
+        my $ret = $rpc->send_request ("source_jails");
+        die "Error: $ret" unless ref $ret;
+        die "Error: " . $ret->string if is_fault $ret;
+        reportline (4, "Return value: ", $ret->value);
+        my $metalist = $ret->value;
+        my @labels = ('Jail ID', 'Name', 'Version');
+        my @rows;
+        while (my ($path, $meta) = each %$metalist) {
+            push @rows, [$path, ($meta->{name}||""), ($meta->{jail_version}||"")];
+        }
+        my $tbl = Ximian::SimpleTable::format_table (\@labels, \@rows);
+        print $tbl, $/;
+    } elsif ($query eq 'jails') {
+        my $ret = $rpc->send_request ("jails");
+        die "Error: $ret" unless ref $ret;
+        die "Error: " . $ret->string if is_fault $ret;
+        reportline (4, "Return value: ", $ret->value);
+        my $metalist = $ret->value;
+        my @labels = ('Jail ID', 'Name', 'Owner', 'Version', 'Node ID');
+        my @rows;
+        while (my ($path, $meta) = each %$metalist) {
+            push @rows, [$path,
+                         ($meta->{name} || ""),
+                         ($meta->{owner} || ""),
+                         ($meta->{jail_version} || ""),
+                         ($meta->{nodeid} || "")];
+        }
+        my $tbl = Ximian::SimpleTable::format_table (\@labels, \@rows);
+        print $tbl, $/;
+    } elsif ($query eq 'ping') {
+	my $ping;
+	eval {
+            my $ret = $rpc->send_request ("ping");
+            die $ret unless ref $ret;
+            die $ret->string if is_fault $ret;
+            reportline (4, "Return value: ", $ret->value);
+            $ping = $ret->value;
+        };
+	if (my $e = $@) {
+	    reportline (2, "Error: $e");
+	} else {
+	    reportline (2, "Ping reply: $ping");
+	}
+    } elsif ($query eq 'version') {
+        my $ret = $rpc->send_request ("version");
+        die "Error: $ret" unless ref $ret;
+        die "Error: " . $ret->string if is_fault $ret;
+        reportline (4, "Return value: ", $ret->value);
+        $ret = $ret->value;
+	reportline (2, "Version: $ret");
+    } else {
+        reportline (1, "Unknown query \"$query\"");
+        exit 1;
+    }
+}
+
+sub get_files {
+    my $port = $rpc->send_request ("fileserver_port");
+    die "Error: $port" unless ref $port;
+    die "Error: " . $port->string if is_fault $port;
+    reportline (4, "Return value: ", $port->value);
+    $port = $port->value;
+
+    # FIXME: don't rm -rf *, requires making -m work right server-side
+    # FIXME: wget doesn't return error on 404! gaah
+    # update: apparently, some versions do.  we still can't depend on it though :(
+    run_cmd ("rm -rf built-packages");
+    my $wget = "wget -q -m -np -nH http://$node_host:$port/built-packages";
+    reportline (3, "Running: $wget");
+    if (run_cmd ($wget)) {
+        reportline (1, "Error retrieving files.  Perhaps none have been output yet.");
+    }
+}
+
+sub get_logs {
+    my $port = $rpc->send_request ("fileserver_port");
+    die "Error: $port" unless ref $port;
+    die "Error: " . $port->string if is_fault $port;
+    reportline (4, "Return value: ", $port->value);
+    $port = $port->value;
+
+    # FIXME: don't rm -rf *, requires making -m work right server-side
+    # FIXME: wget doesn't return error on 404! gaah
+    run_cmd ("rm -rf logs/$args{logs}");
+    my $wget = "wget -q -m -np -nH http://$node_host:$port/logs/$args{logs}";
+    reportline (3, "Running: $wget");
+    if (run_cmd ($wget)) {
+        reportline (1, "Error retrieving log files for job \"$args{logs}\".");
+    }
+}
+
+########################################################################
+
+if ($args{cleanup}) {
+    $rpc->send_request ("cleanup");
+} elsif ($args{unpack}) {
+    my $name = RPC::XML::string->new (shift @ARGV);
+    die "No jail ID given" unless $name;
+    my $ret = $rpc->send_request ("unpack", $name);
+    die "Error: $ret" unless ref $ret;
+    die "Error: " . $ret->string if is_fault $ret;
+    reportline (2, "Unpacking jail ID: ", $ret->value);
+} elsif ($args{destroy}) {
+    my $jailid = RPC::XML::string->new (shift @ARGV);
+    die "No jail ID given" unless $jailid;
+    my $ret = $rpc->send_request ("destroy", $jailid);
+    die "Error: $ret" unless ref $ret;
+    die "Error: " . $ret->string if is_fault $ret;
+    if ($ret->value) {
+        reportline (1, "Error destroying jail.  Check server logs.");
+    } else {
+        reportline (2, "Jail deleted.");
+    }
+} elsif ($args{jail_set}) {
+    my $jailid = RPC::XML::string->new (shift @ARGV);
+    die "No jail ID given" unless $jailid;
+    my $ret = $rpc->send_request ("jail_set", $jailid);
+    die "Error: $ret" unless ref $ret;
+    die "Error: " . $ret->string if is_fault $ret;
+    if ($ret->value) {
+        reportline (1, "Error setting metadata.  Check server logs.");
+    } else {
+        reportline (2, "Set succeeded.");
+    }
+} elsif ($args{node_start}) {
+    my $jailid = RPC::XML::string->new (shift @ARGV);
+    die "No jail ID given" unless $jailid;
+    my $ret = $rpc->send_request ("node_start", $jailid);
+    die "Error: $ret" unless ref $ret;
+    die "Error: " . $ret->string if is_fault $ret;
+    if ($ret->value) {
+        reportline (1, "Could not start node.  Check server logs.");
+    } else {
+        reportline (2, "Node started.");
+    }
+} elsif ($args{node_stop}) {
+    my $jailid = RPC::XML::string->new (shift @ARGV);
+    die "No jail ID given" unless $jailid;
+    my $ret = $rpc->send_request ("node_stop", $jailid);
+    die "Error: $ret" unless ref $ret;
+    die "Error: " . $ret->string if is_fault $ret;
+    if ($ret->value) {
+        reportline (1, "Could not stop node.  Check server logs.");
+    } else {
+        reportline (2, "Node stopped.");
+    }
+} elsif ($args{files}) {
+    get_files ();
+} elsif ($args{logs}) {
+    get_logs ();
+} elsif ($args{query}) {
+    query ($args{query}, @ARGV);
+    exit 0;
+} else {
+    my $job = build (@ARGV);
+    reportline (2, "Job ID: $job");
+}
+
+exit 0;
+
+__END__
+
+=head1 NAME
+
+bb_client - Submit a build request to the BB daemon
+
+=head1 SYNOPSIS
+
+bb_client -t <target,target2,..> [-m master] [-p master_port]
+          [--cvsroot repo] [--cvsmodule module] [--cvsversion rev]
+          [-c pipeline_channel] [-C channel] [--snapshot]
+          [--synchronous] module1 [option=value,..]module2 ...
+
+=head1 DESCRIPTION
+
+B<bb_client> is a command-line interface to the BB daemon, and
+supports most of the functionality the daemon makes available via
+xml-rpc.
+
+B<bb_client> will return a job id E<gt> 0 upon success, which can be
+used to check the status of the job by looking at the daemon outputdir
+(defined in bb.conf), or by inserting the job id in the web interface
+to the daemon.  A job id of 0 means an error occurred during
+submission.  Usually, this means no valid nodes were found that could
+satisfy the request made (due to low disk space, or not having a jail
+for the target(s) requested).
+
+In addition to the global (per job) options below, read the
+L<PER-MODULE OPTIONS> section for information on overriding settings
+for each module.
+
+=head1 OPTIONS
+
+=over 4
+
+=item query (q)
+
+When the -q option is specified, the host is only queried--no build
+action is requested.  The -q option takes one of three possible
+arguments:
+
+=over 4
+
+=item ping
+
+Send an XML-RPC "ping", to verify that it is listening.
+
+=item version
+
+Print the BB version of the host.
+
+=item targets
+
+List the supported build targets, as reported by the host.  In the
+case of the master, this is the union of all the build targets the
+nodes support.
+
+=item load
+
+Print information about the host's CPU and HD usage.  This is only
+available when the host is a node, the master does not support it.
+
+=item jobstatus
+
+Query the status of a job (running, succeeded, failed, aborted).
+Supply one or move jobids as arguments.
+
+=back
+
+=item jail_cleanup
+
+This option is (currently) only useful when used directly with a node
+(i.e., not through the master).  It causes the node to run its jail
+cleanup routine, in which is searches for old jails and deletes them.
+
+=item target (t)
+
+A comma-separated list of targets to build on.
+
+=item min_disk
+
+Do not start a job if the node doesn't have at least this much disk
+space (in bytes).  This is measured before the jail is unpacked and
+build dependencies are installed, so take that into account.  Defaults
+to 1000000000 (~1G).
+
+=item max_jobs
+
+Do not start a job if the node already has this many (or more) jobs
+running.  Defaults to 4 jobs.
+
+=item pipeline_channel (c)
+
+Submit the packages to a pipelined channel if the build succeeds.  Do
+not submit to the -qa channel directly, simply provide the channel
+base.
+
+=item channel (C)
+
+Submit directly to a channel, not using the pipeline.
+
+=item force_submit
+
+Generally, B<bb_client> will refuse to accept channels ending in
+'-qa'.  This forces it to submit the job even if that is the case.
+
+=item cvsroot
+
+Cvsroot to use for checking out the conf files.  Defaults to
+'distro@cvs:/cvs/helix-gnome'.
+
+=item cvsmodule
+
+Module that containst the conf files.  Defaults to 'ximian-desktop'.
+
+=item cvsversion
+
+Cvs tag/revision of the conf to check out.
+
+=item snapshot
+
+Build snapshot-style.
+
+=item create_tarballs
+
+Create tarballs out of the resulting packages as well.
+
+=item remove_jail
+
+Remove jail after building if job succeeds.  If the job fails, mark
+the jail so it will not be used again, but do not delete it
+immediately.
+
+=item synchronous (s)
+
+Do not return until the job has finished.
+
+=item master (m)
+
+BB Master to submit jobs to.  The default is to read the bb.conf file
+for this info.
+
+This can also be set to a node's address, since the node and the
+master share much of the XML-RPC API.  This is useful for using the
+--query option, see above.
+
+=item masterport (p)
+
+Port the master is running on.  Default is 8080.
+
+=item node
+
+Bypass the scheduler and select a particular node by specifying its
+hostname.
+
+=item ignore_submission_errors
+
+If used, ignore any errors during the submission step (and a) keep
+submitting, b) mark the job as succeeded).
+
+=item ignore_build_errors
+
+If used, ignore any errors while building and packaging each module,
+and simply skip to the next module to be built.
+
+=back
+
+=head1 PER-MODULE OPTIONS
+
+There is a syntax for overriding options on a per-module basis.  The
+syntax is as follows:
+
+[option=value,option2=value2,...]module-name
+
+The module name can also be included inside the brackets, by using the
+option 'name', like so:
+
+[name=module] [name=module2] ..
+
+Whitespace is allowed inside the brackets, but if the module name is
+outside the brackets there cannot be any space between the name and
+the closing bracket.  Note that if spaces are used, care must be taken
+to have the shell not split it into multiple arguments.  This can be
+accomplished by using quotes (double quotes work, but single quotes
+are recommended).
+
+Options can be set to 0 to disable them, or left empty (i.e.,
+[option=,option2=]module) to leave them undefined.
+
+=head1 EXAMPLES
+
+Build the Ximian build System on Red Hat Linux 8.0:
+
+bb_client -t redhat-80-i386 ximian-bb
+
+The same as above, but build snapshot-style, and submit to the release
+channel:
+
+bb_client -t redhat-80-i386 --snapshot -c ximian-release ximian-bb
+
+Build also on slec-1-i386, and build perl-Crypt-SSLeay as well, but
+that can't be snapshot-style.  Also, pull the conf files from the
+bb-conf module instead of ximian-bb:
+
+bb_client -t redhat-80-i386,slec-1-i386 --cvsmodule bb-conf --snapshot [snapshot=0]perl-crypt-ssleay ximian-bb
+
+=head1 AUTHOR
+
+Dan Mills <thunder@ximian.com>
+
+=head1 COPYRIGHT
+
+Copyright 2003 Ximian, Inc. <distribution@ximian.com>.  All rights
+reserved.
+
+=cut

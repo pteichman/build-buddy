@@ -1,0 +1,16 @@
+This is Build Buddy, the Ximian Build System.
+
+
+DOCUMENTATION
+-------------
+
+There is a user's manual as well as some developer documentation in
+the docs/ directory.  Most scripts also contain perldoc documentation
+(run "perldoc scriptname").
+
+
+BUILDING AND DEVELOPING
+-----------------------
+
+If you have never contributed to BB before, contact the maintainer for
+instructions.  There will be some paperwork to be filled out.

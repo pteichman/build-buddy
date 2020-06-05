@@ -1,0 +1,421 @@
+#!/usr/bin/perl
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: bb_snapshot 3068 2005-12-22 03:41:13Z v_thunder $
+
+=head1 NAME
+
+bb_snapshot - Run fully automated snapshots using the bb daemon
+
+=head1 SYNOPSIS
+
+bb_snapshot [args]
+
+=cut
+
+use strict;
+use POSIX ":sys_wait_h";
+use RPC::XML;
+use RPC::XML::Client;
+use Storable 'dclone';
+
+use File::Spec::Functions 'rel2abs';
+BEGIN { rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+	$My::path = $1; $My::bin = $2;}
+
+use lib "$My::path/../lib";
+
+use Ximian::Run ':all';
+use Ximian::Util ':all';
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Submit ':all';
+use Ximian::BB::AuthClient;
+
+########################################################################
+# Global variables
+
+my %args;
+
+my $master;
+my $authclient;
+my $logstyles;
+my ($bb_info) = get_os_info ();
+
+my @children;
+my $submit_done;
+
+########################################################################
+
+sub usage {
+    print <<EOF;
+Usage: bb_snapshot [--help] [--name] [--debug] [--noact]
+                   [--status_retries] [--sleep] [--loop]
+                   [--daemonize] [--conf] [--logstyle]
+                   [--logstyledir]
+EOF
+    exit 1;
+}
+
+parse_args_set (\%args, "base", "master");
+
+parse_args
+    (\%args,
+     [
+      {names => ["help", "usage", "h", "?", ""], run => \&usage},
+      {names => ["name",      "n"], type => "=s", default => ""},
+      {names => ["login",     "l"], type => "=s", default => ""},
+      {names => ["exclude_login" ], type => "=s", default => ""},
+      {names => ["allow_non_snap"], type => "!",  default => 0},
+      {names => ["debug",     "d"], type => "=i", default => 2},
+      {names => ["noact"         ], default => 0},
+      {names => ["user",      "u"], type => "=s", default => "snapshot"},
+      {names => ["password",  "p"], type => "=s", default => ""},
+      {names => ["status_retries"], type => "=i",
+       default => (exists $bb_info->{snapshot}->{status_retries}?
+		   $bb_info->{snapshot}->{status_retries} : 10)},
+
+      {names => ["sleep",     "s"], type => "=i",
+       default => (exists $bb_info->{snapshot}->{sleep}?
+		   $bb_info->{snapshot}->{sleep} : 1)},
+      {names => ["loop",      "L"], type => "=i",
+       default => (exists $bb_info->{snapshot}->{loop}?
+		   $bb_info->{snapshot}->{loop} : -1)},
+      {names => ["daemonize", "d"], default => 0},
+
+      # for "conf" mode (doesn't use the db)
+      {names => ["conf",      "c"], type => "=s", default => ""},
+
+      # pluggable logging modules
+      {names => ["logstyle"      ], type => "=s",
+       default => ($bb_info->{snapshot}->{logstyle} || "")},
+      {names => ["logstyledir"],
+       type => "=s", default => "$args{srcdir}/logstyles"},
+      ]);
+
+# hack to allow for empty ('') passwords - RPC::XML won't base64
+# encode if we don't do this, and Auth.pm doesn't care if the user's
+# password is really ''
+$args{password} = " " unless $args{password};
+
+my ($h, $mp, $ap) = ($args{master}, $args{masterport}, $args{authport});
+$master = RPC::XML::Client->new ("http://$h:$mp/RPC2",
+				 useragent => [timeout => 480]);
+$authclient = Ximian::BB::AuthClient->new (url => "http://$h:$ap/RPC2");
+
+# note: we use the "conf" arg to determine which mode we're in
+
+if ($args{daemonize}) {
+    daemonize ($args{logfile}) 
+} else {
+    # For happy logging:
+    STDIN->autoflush(1);
+    STDOUT->autoflush(1);
+}
+
+########################################################################
+# Snap-building subs
+
+# builds one job (for one target)
+
+# Note that we call log_start *after* scheduling the job.  The
+# possible error in the start time is small, and it means the logging
+# sub gets the jobid.
+
+sub build_submit {
+    my $job = shift;
+
+    eval {
+	my $key = $authclient->authenticate ($args{user}, $args{password});
+	Ximian::Run::pause_handler;
+	my $ret = $master->send_request ("build_simple", $args{user},
+					 $key, $job->{conf});
+	Ximian::Run::resume_handler;
+	die "Could not submit job: $ret" unless ref $ret;
+	die "Could not submit job: " . $ret->string if is_fault $ret;
+	$job->{jobid} = $ret->value;
+    };
+    if (my $e = $@) {
+	reportline (1, "Error: $e");
+	$job->{status} = "submit_error";
+	$job->{submit_error} = $e;
+    } else {
+	if ($args{conf}) {
+	    Ximian::Run::pause_handler;
+	    my $ret = $master->send_request ("job_status", $job->{jobid});
+	      Ximian::Run::resume_handler;
+	    die "Could not query master: $ret" unless ref $ret;
+	    die "Could not query master: " . $ret->string if is_fault $ret;
+	    $job->{status} = $ret->value;
+	} else {
+	    require Ximian::BB::DB::Job;
+	    my $dbjob = Ximian::BB::DB::Job->retrieve ($job->{jobid});
+	    $job->{status} = $dbjob->statusid->name;
+	}
+	return $job;
+    }
+}
+
+sub build_monitor {
+    my $job = shift;
+    my $errors;
+
+    while ($job->{status} !~ /(succeeded|failed|aborted|submit_error)/) {
+	reportline (5, "Checking job status");
+	safe_sleep (($args{sleep} || 1) * 60); # FIXME
+	eval {
+	    if ($args{conf}) {
+		Ximian::Run::pause_handler;
+		my $ret = $master->send_request ("job_status", $job->{jobid});
+		  Ximian::Run::resume_handler;
+		die "Could not query master: $ret" unless ref $ret;
+		die "Could query master: " . $ret->string if is_fault $ret;
+		$job->{status} = $ret->value;
+	    } else {
+		# This is faster than the xml-rpc method
+		require Ximian::BB::DB::Job;
+		lock_acquire_safe_spin ("/tmp/bb_snapshot_monitor_lock");
+		my $dbjob = Ximian::BB::DB::Job->retrieve ($job->{jobid});
+		$job->{status} = $dbjob->statusid->name;
+		# Grossness:
+		$_->disconnect foreach (Ximian::BB::DB::DBI->db_handles);
+		lock_release ("/tmp/bb_snapshot_monitor_lock");
+	    }
+	};
+	if (my $e = $@) {
+	    lock_release ("/tmp/bb_snapshot_monitor_lock");
+	    reportline (2, "Error monitoring job: $e");
+	    $job->{status} = "unknown";
+	    safe_sleep (($args{sleep} || 1) * 60);
+	    if ($errors++ >= $args{status_retries}) {
+		reportline (2, "Too many errors checking job status, giving up.");
+		last;
+	    }
+	}
+    }
+    return $job;
+}
+
+sub child_log_cb {
+    my ($context, @lines) = @_;
+    print "$_\n" foreach (@lines);
+    if ($context->{run_status}) {
+	@children = grep { $_ ne $context->{pid} } @children;
+	if ($submit_done and scalar @children) {
+	    reportline (2, "Monitoring " . scalar @children . " jobs.");
+	}
+    }
+}
+
+# Takes an array of jobs and builds them all in parallel
+
+sub run_snaps {
+    my @jobs = @_;
+
+    report (3, "Submitting jobs to the build master... ");
+    reportline (2, "\nWarning: --noact enabled, using fake jobid \"1234\".")
+	if $args{noact};
+
+    foreach my $job (@jobs) {
+	if ($args{noact}) {
+	    $job->{jobid} = 1234;
+	    $job->{status} = "running";
+	    log_event ("job_start", %$job);
+	    $job->{status} = "succeeded";
+	    log_event ("job_end", %$job);
+	} else {
+	    build_submit ($job);
+
+	    # Gross, as this'll *connect*, then disconnect,
+	    # but we need to make sure we don't trample the other proc
+	    $_->disconnect foreach (Ximian::BB::DB::DBI->db_handles);
+
+	    my $pid = run_cmd_async
+		({logging_cb => \&child_log_cb,
+		  run_cb => sub {
+		    $0 = "bb_snapshot [worker]";
+		    log_event ("job_start", %$job);
+		    build_monitor ($job);
+		    log_event ("job_end", %$job);
+		    # Grossness:
+		    $_->disconnect foreach (Ximian::BB::DB::DBI->db_handles);
+		    return 0;
+		}});
+
+	    push @children, $pid;
+	    unless (1 == scalar @jobs) {
+		safe_sleep ($args{sleep} * 60);
+	    }
+	}
+    }
+    $submit_done = 1;
+    reportline (3, "done.");
+    return @children;
+}
+
+########################################################################
+# Snaps from a config file
+
+# FIXME: This needs testing / love
+
+sub helper {
+    my %foo = @_;
+    $foo{xml}->{target} = $args{target} if $args{target};
+    $foo{xml}->{push} = $args{push} if $args{push};
+    return map {$_ = {name => $foo{name}, conf => $_}}
+	split_job_targets (job_from_xml (xml => $foo{xml},
+					 bb_info => $bb_info));
+}
+
+sub get_jobs_conf {
+    report (3, "Getting jobs from $args{conf}: ");
+
+    my $snaps_conf = parse_snaps_conf (conf_file => $args{conf})
+	or die "Could not parse snapshots config file: $!\n";
+
+    my @jobs;
+    if ($args{name}) {
+	die "No such snapshot \"$args{name}\" in the snapshot conf.\n"
+	    unless defined $snaps_conf->{snap}->{$args{name}};
+	push @jobs, helper (name => $args{name},
+			    target => $args{target},
+			    push => $args{push},
+			    xml => $snaps_conf->{snap}->{$args{name}}); 
+    } else {
+	while (my ($name, $xml) = each %{$snaps_conf->{snap}}) {
+	    push @jobs, helper (name => $name,
+				target => $args{target},
+				push => $args{push},
+				xml => $xml); 
+	}
+    }
+    reportline (3, scalar @jobs . " jobs.");
+    return @jobs;
+}
+
+########################################################################
+# Snaps from the DB
+
+sub get_jobs_db {
+    report (3, "Getting jobs from the DB: ");
+    my @jobs;
+    my $args = {};
+    $args->{run_snap} = "t" unless $args{allow_non_snap};
+    $args->{name} = $args{name} if $args{name};
+    if ($args{login}) {
+	require Ximian::BB::DB::User;
+	my ($user) = Ximian::BB::DB::User->search (login => $args{login});
+	$args->{uid} = "$user";
+    } elsif ($args{exclude_login}) {
+	require Ximian::BB::DB::User;
+	my ($user) = Ximian::BB::DB::User->search (login => $args{exclude_login});
+	$args->{uid} = {"<>", "$user"};
+    }
+    require Ximian::BB::DB::SavedJob;
+    foreach my $snap (Ximian::BB::DB::SavedJob->search_where ($args)) {
+	my $job = Ximian::BB::DB::SavedJob::load_saved_job ($snap->sjid);
+	foreach my $conf (Ximian::BB::Submit::split_targets ($job)) {
+	    push @jobs, {name => $snap->name,
+			 sjid => $snap->sjid,
+			 conf => $conf};
+	}
+    }
+    reportline (3, scalar @jobs . " jobs.");
+    return @jobs;
+}
+
+########################################################################
+# Logging routines
+#
+# Logstyles can be defined by placing a perl module in the logstyle
+# dir that calls main::register_logstyle (below).  This function takes
+# a name for the logstyle, as well as a hash mapping log events to
+# function refs.
+
+sub log_event {
+    my ($name, @data) = @_;
+    return unless $args{logstyle};
+    foreach my $style (split /,/, $args{logstyle}) {
+	my @copy = @{dclone (\@data)};
+	if (exists $logstyles->{$style}->{$name}) {
+	    eval {
+		$logstyles->{$style}->{$name}->(@copy);
+	    };
+	    if (my $e = $@) {
+		reportline (2, "Logstyle Error: $e");
+	    }
+	} else {
+	    reportline (3, "Warning: logstyle \"$style\" " .
+		    "does not handle event \"$name\".");
+	}
+    }
+}
+
+sub register_logstyle {
+    my ($logstyle, $events) = @_;
+    reportline (2, "Warning: redefining logstyle \"$logstyle\".")
+	if exists $logstyles->{$logstyle};
+    $logstyles->{$logstyle} = $events;
+    report (4, "$logstyle");
+}
+
+sub populate_logstyles {
+    my $plugindir = shift;
+
+    report (4, "Populating logstyles: ");
+    opendir PLUGINDIR, $plugindir
+	or die "Could not open logstyledir \"$plugindir\".\n";
+    my $first = 1;
+    while (my $file = readdir PLUGINDIR) {
+	next if $file =~ /^\.+$/ or $file !~ /\.pm$/;
+	report (4, ", ") unless ($first);
+	$first = 0;
+	require "$plugindir/$file";
+    }
+    closedir PLUGINDIR;
+    reportline (4, ".");
+}
+
+########################################################################
+# Main
+
+populate_logstyles ($_) foreach (split /:/, $args{logstyledir});
+
+while (1) {
+    my @jobs = $args{conf}? get_jobs_conf : get_jobs_db;
+
+    unless (scalar @jobs) {
+	reportline (2, "No snaps to run.");
+	exit 1;
+    }
+
+    run_snaps (@jobs);
+    log_event ("snaps_start", @jobs);
+    reportline (2, "Monitoring " . scalar @children . " jobs.");
+    safe_sleep (($args{sleep} || 1) * 10) while (scalar @children);
+    $_->{status} = '' for (@jobs); # we don't know
+    log_event ("snaps_end", @jobs);
+    # Grossness:
+    $_->disconnect foreach (Ximian::BB::DB::DBI->db_handles);
+    reportline (2, "All done!");
+
+    last if $args{loop} == -1;
+    safe_sleep ($args{loop} * 3600);
+}
+
+exit 0;
+
+__END__

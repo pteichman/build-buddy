@@ -1,0 +1,2963 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: bb_do 3068 2005-12-22 03:41:13Z v_thunder $
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||""); $My::bin = $My::bin;
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+use strict;
+use POSIX;
+use IO::File;
+use File::Basename;
+use File::Copy;
+use File::Find;
+
+use Ximian::Util ':all';
+use Ximian::Run ':all';
+use Ximian::Sighandler;
+use Ximian::BB::Globals;
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Target ':all';
+use Ximian::BB::Macros ':all';
+use Ximian::BB::Module ':all';
+use Ximian::BB::Plugin ':all';
+use Ximian::BB::Env ':all';
+
+########################################################################
+
+my $rcsid = '$Id: bb_do 3068 2005-12-22 03:41:13Z v_thunder $';
+my $progname = basename $0;
+
+my @start_times = ();
+my $clock_speed = sysconf(_SC_CLK_TCK); # for times() output
+
+my @ops = qw(dist source prepare clean build install pack);
+my %ops = (dist => \&do_dist,
+           source => \&do_source,
+           prepare => \&do_prepare,
+           clean => \&do_clean,
+           build => \&do_build,
+           check => \&do_check,
+           install => \&do_install,
+           pack => \&do_pack);
+
+my %args;
+
+########################################################################
+
+sub usage {
+    reportline (2, "Usage: ${progname} [-v verbosity] [all|@{[join('|', @ops)]}]");
+    exit 1;
+}
+
+parse_args_set (\%args, "base");
+parse_args
+    (\%args,
+     [
+      {names => ["help", "h", "?", ""], run => \&usage},
+      {names => ["conffile",      "f"], type => "=s", default => "build-buddy.conf"},
+
+      {names => ["version",       "V"], type => "=s", nodefault => 1},
+      {names => ["serial",        "S"], type => "=s", nodefault => 1},
+      {names => ["revision",      "R"], type => "=s", nodefault => 1},
+
+      {names => ["build_id",      "b"], type => "=s", default => ("default")},
+      {names => ["snapshot"          ], type => "!", default => 0},
+      {names => ["unstripped"        ], type => "!", default => ($ENV{BB_UNSTRIPPED} || 0)},
+      ]);
+
+my $bbconf = get_bb_conf ();
+my $confdirs_ref = $bbconf->{dirs}->{config}->{i};
+@Ximian::BB::Globals::confdirs = macro_replace ($confdirs_ref, [$bbconf]);
+
+my ($packsys, $target) = $args{target}?
+    split (':', $args{target}) : detect_target ();
+$Ximian::BB::Globals::packsys = $packsys;
+$Ximian::BB::Globals::target = $target;
+
+my $osconf = get_os_conf ();
+my $conf = get_module_conf ($args{conffile}, $args{build_id});
+
+$Ximian::BB::Globals::confs = [$conf, $osconf, $bbconf];
+
+parse_args
+    (\%args,
+     [
+      {names => ["plugindir"         ], type => "=s", default => get_dir ("plugindir")},
+      {names => ["archivedir"        ], type => "=s", default => get_dir ("archivedir")},
+      {names => ["src_archivedir"    ], type => "=s", default => get_dir ("src_archivedir")},
+      {names => ["topdir"            ], type => "=s", default => get_dir ("topdir")},
+      {names => ["srcdir"            ], type => "=s", default => get_dir ("srcdir")},
+      {names => ["builddir"          ], type => "=s", default => get_dir ("builddir")},
+      {names => ["tmpinstdir"        ], type => "=s", default => get_dir ("tmpinstdir")},
+      ]);
+
+$conf->{dir} = {};
+foreach my $d (qw/archivedir src_archivedir topdir srcdir builddir tmpinstdir/) {
+    mkdirs $args{$d};
+    $args{$d} =~ s{/$}{};
+    $conf->{dir}->{$d} = $args{$d};
+}
+foreach my $d (qw/plugindir/) {
+    $args{$d} =~ s{/$}{};
+    $conf->{dir}->{$d} = $args{$d};
+}
+
+load_plugins ($_) foreach (split ':', get_dir ("plugindir"));
+my %plugins = get_plugins;
+
+my @todo = @ARGV? @ARGV : @ops;
+foreach my $op (@todo) {
+    unless ($op =~ /^all|@{[join("|", @ops)]}$/) {
+	reportline (1, "Unknown operation: \"$op\"");
+	usage ();
+    }
+}
+
+########################################################################
+
+$conf->{unstripped} = ($args{unstripped} || $conf->{unstripped});
+$conf->{snapshot} = ($args{snapshot} || $conf->{snapshot});
+
+$conf->{version} = first_defined ($args{version}, make_version ($conf, $plugins{source}));
+$conf->{serial} = first_defined ($args{serial}, $conf->{serial});
+$conf->{revision} = first_defined ($args{revision}, make_rev ($conf, $plugins{source}));
+$conf->{fullversion} = full_version ($conf);
+
+pushd get_dir ("builddir");
+if (exists $conf->{tardir}) {
+    reportline (4, "Tardir set in the conf, replacing macros.");
+    $conf->{tardir} = macro_replace ($conf->{tardir});
+} else {
+    foreach my $name (("$conf->{srcname}-$conf->{version}",
+                       $conf->{srcname}, $conf->{name}, "")) {
+        my $n = macro_replace ($name);
+        my @srcglob = glob "$n*";
+        reportline (4, "Tardir search \"$n*\" found: \"@srcglob\"");
+        if (@srcglob and -d $srcglob[0]) {
+            $conf->{tardir} = $srcglob[0];
+            last;
+        }
+    }
+}
+unless ($conf->{tardir} and -d "$conf->{tardir}") {
+    popd;
+    die "Could not find unpacked source, did you forget to bb_unpack?\n";
+}
+reportline (3, "Using tardir \"$conf->{tardir}\"");
+popd;
+
+########################################################################
+
+umask 022;
+
+# Set up signal handlers for clean exit.
+$SIG{INT} = $SIG{TERM} = \&Ximian::Sighandler::std_exit_handler;
+
+# Turn off buffering on stdin/stdout for happier logging
+STDIN->autoflush(1);
+STDOUT->autoflush(1);
+
+env_cleanup ();
+
+@start_times = POSIX::times(); # Start the stopwatch
+dispatch (@todo); # do the actual work
+
+exit 0;
+
+########################################################################
+
+# Call individual stages, printing start/finish messages and keeping
+# running time totals.
+
+sub dispatch {
+    my (@pre_times, @post_times);
+    foreach my $task (@_) {
+	if ($task eq 'all') {
+	    dispatch(@ops);
+	} else {
+	    report (2, <<EOF);
+ ***********************************************************************
+** $progname: begin $task stage at @{[scalar gmtime]} GMT
+*+ module: $conf->{name}
+*
+
+EOF
+	    @pre_times = POSIX::times;
+	    $ops{$task}->();
+	    @post_times = POSIX::times;
+	    my $realtime = ($post_times[0] - $pre_times[0]) / $clock_speed;
+	    my $usertime = ($post_times[3] - $pre_times[3] +
+			    $post_times[1] - $pre_times[1]) / $clock_speed;
+	    my $systime = ($post_times[4] - $pre_times[4] +
+			   $post_times[2] - $pre_times[2]) / $clock_speed;
+	    my $crealtime = ($post_times[0] - $start_times[0]) / $clock_speed;
+	    my $cusertime = ($post_times[3] - $start_times[3] +
+			     $post_times[1] - $start_times[1]) / $clock_speed;
+	    my $csystime = ($post_times[4] - $start_times[4] +
+			   $post_times[2] - $start_times[2]) / $clock_speed;
+	    report (2, <<EOF);
+*
+*  $progname: end $task stage at @{[scalar gmtime]} GMT
+*       stage times: ${realtime}s real, ${usertime}s user, ${systime}s system
+** cumulative times: ${crealtime}s real, ${cusertime}s user, ${csystime}s system
+ ***********************************************************************
+
+EOF
+	}
+    }
+}
+
+sub magicglob (@) {
+    my @outarray;
+
+    foreach my $globstr (@_) {
+	my @globlist = glob($globstr);
+	foreach my $globfile (@globlist) {
+	    if (-d $globfile) {
+		find (sub {-f and push (@outarray, $File::Find::name)},
+		      $globfile);
+	    } else {
+		push @outarray, $globfile;
+	    }
+	}
+    }
+
+    return @outarray;
+}
+
+
+# Return the patch level at which bb_unpack left the sources
+sub patch_level {
+    my $patched_to;
+    if (-f "@{[get_dir ('builddir')]}/patched-to") {
+       open PATCH, "@{[get_dir ('builddir')]}/patched-to"
+           or die "Could not open patched-to.";
+       $patched_to = <PATCH>;
+       close PATCH;
+       $patched_to =~ s/-\d+$//;
+       chomp $patched_to;
+       return $patched_to;
+    }
+    return undef;
+}
+
+########################################################################
+# Handler routines for each operation - they should call package
+# system-specific handlers as well when appropriate to split out
+# package system logic.
+
+sub do_dist () {
+    my $packsys = $Ximian::BB::Globals::packsys;
+    if ($packsys eq 'rpm') {
+	do_dist_rpm();
+    } elsif ($packsys eq 'dpkg') {
+	do_dist_dpkg();
+    } elsif ($packsys eq 'sd') {
+	do_dist_sd();
+    } elsif ($packsys eq 'inst') {
+        do_dist_inst();
+    }
+}
+
+sub do_source () {
+    mkdirs get_dir ("archivedir");
+    mkdirs get_dir ("src_archivedir");
+    my $packsys = $Ximian::BB::Globals::packsys;
+    if ($packsys eq 'rpm') {
+	do_source_rpm();
+    } elsif ($packsys eq 'dpkg') {
+	do_source_dpkg();
+    } elsif ($packsys eq 'sd') {
+	do_source_sd();
+    } elsif ($packsys eq 'inst') {
+        do_source_inst();
+    }
+}
+
+sub do_prepare () {
+    unlink "$conf->{dir}->{builddir}/config.cache", "$conf->{dir}->{builddir}/config.status";
+    my $packsys = $Ximian::BB::Globals::packsys;
+    if ($packsys eq 'rpm') {
+	do_prepare_rpm();
+    } elsif ($packsys eq 'dpkg' ) {
+	do_prepare_dpkg();
+    } else {
+	chdir $conf->{dir}->{builddir} || die "chdir $conf->{dir}->{builddir}: $!\n";
+	run_or_die Ximian::BB::Conf::macro_replace($conf->{prepare});
+	chdir $conf->{dir}->{topdir} || die "chdir $conf->{dir}->{topdir}: $!\n";
+    }
+}
+
+sub do_clean () {
+    if (-d $conf->{dir}->{builddir}) {
+	chdir $conf->{dir}->{builddir} || warn "chdir $conf->{dir}->{builddir}: $!\n";
+        my $make = ($ENV{MAKE} || "make");
+        $make = $make->{content} if ref $make;
+	run_or_die "$make clean" if (-e 'Makefile');
+	find sub {unlink if (/.+[\.\-]stamp$/ or /config\.cache/)}, $conf->{dir}->{builddir};
+	chdir $conf->{dir}->{topdir} || die "chdir $conf->{dir}->{topdir}: $!\n";
+    }
+
+    my $packsys = $Ximian::BB::Globals::packsys;
+    if ($packsys eq 'rpm') {
+	do_clean_rpm();
+    } elsif ($packsys eq 'dpkg') {
+	do_clean_dpkg();
+    } else {
+    }
+}
+
+sub do_build () {
+    my $packsys = $Ximian::BB::Globals::packsys;
+    if ($packsys eq 'rpm') {
+	do_build_rpm();
+    } elsif ($packsys eq 'dpkg') {
+	do_build_dpkg();
+    } else {
+	chdir $conf->{dir}->{builddir} || die "chdir $conf->{dir}->{builddir}: $!\n";
+	run_or_die macro_replace($conf->{compile});
+	chdir $conf->{dir}->{topdir} || die "chdir $conf->{dir}->{topdir}: $!\n";
+    }
+}
+
+sub do_check () {
+}
+
+sub do_install () {
+    my $packsys = $Ximian::BB::Globals::packsys;
+    mkdirs $conf->{dir}->{tmpinstdir};
+    if ($packsys eq 'rpm') {
+	do_install_rpm();
+    } elsif ($packsys eq 'dpkg') {
+	do_install_dpkg();
+    } elsif ($packsys eq 'sd') {
+	do_install_sd();
+    } else {
+	local $ENV{DESTDIR} = $conf->{dir}->{tmpinstdir};
+	chdir $conf->{dir}->{builddir} || die "chdir $conf->{dir}->{builddir}: $!\n";
+	run_or_die macro_replace($conf->{install});
+	chdir $conf->{dir}->{topdir} || die "chdir $conf->{dir}->{topdir}: $!\n";
+    }
+}
+
+sub do_pack () {
+    mkdirs get_dir ("archivedir");
+    my $packsys = $Ximian::BB::Globals::packsys;
+    if ($packsys eq 'rpm') {
+	do_pack_rpm();
+    } elsif ($packsys eq 'dpkg') {
+	do_pack_dpkg();
+    } elsif ($packsys eq 'sd') {
+	do_pack_sd();
+    } elsif ($packsys eq 'inst') {
+        do_pack_inst();
+    }
+}
+
+########################################################################
+#
+# Begin RPM-specific handlers
+#
+
+# "...RPM cannot compete with a full-blown revision control system."
+#     -_Maximum RPM_, p. 115
+
+# Setting up an RPM-based package is mostly a matter of writing the
+# .spec file.  The only other files we need to write are a custom
+# rpmrc file (which we reference in all rpm command-line invocations),
+# which in turn points rpm at a custom rpmmacros file, which in turn
+# overrides some of RPM's paths to something more internally
+# consistent with what we're using.  The multiple indirection wouldn't
+# be necessary if it were possible to give rpm a new macro file on the
+# command line *or* it were actually possible to set some of these
+# paths in the rpmrc file.  (_Maximum RPM_ claims you can, but it
+# lies, or is out of date.  The RPM 3 sources and experimentation
+# claim you can't.)  Anyway, the .spec file is the only thing we write
+# here which goes into the SRPM.
+
+# We write a separate .spec file for each "build" in build-buddy.conf.
+# It's pretty standard, if slightly cumbersome in some of the default
+# cases.  For example, we use "%package -n foo-devel" all over the
+# place even though we could use "%package devel", simply because the
+# package name of the devel package is stored in build-buddy.conf as
+# an independent name.
+
+# An effort has been made to restrict the contents of the .spec file
+# to tags and macros for which sufficient documentation exists.  This
+# means _Maximum RPM_, which in turn means we are mostly limited to
+# RPM 2.0.  Using RPM 3.0 features probably won't hurt, since we don't
+# support any Linux which uses RPM 2, but it's probably a bad idea to
+# depend on RPM 4 features.  If RPM 4 breaks something we depend on,
+# we may need to split it into a separate helix-build module.
+
+# RPM is fairly sanctimonious about its predefined notions of how
+# things should be built (see especially _Maximum RPM_, p. 149), and
+# unwilling to accept the notion that someone might know what they're
+# doing.  Luckily, the steps are merely shell script fragments that
+# get split up and run, so we can use a trigger environment variable,
+# $RPM_COMMAND, to do an end run around RPM and tell our scripts what
+# we *really* want them to do.  When this environment variable is
+# unset, the scripts must behave exactly as rpm expects.  This
+# preserves operation outside our build system.
+
+sub do_dist_rpm () {
+    my $pack_conf = $conf->{package}->{default};
+    my @packages = keys %{$conf->{package}};
+    my $macrolist;
+
+    open SPEC, '>', "$conf->{dir}->{topdir}/$conf->{name}.spec"
+        or die "Error writing $conf->{name}.spec: $!\n";
+    open RPMRC, '>', "$conf->{dir}->{topdir}/bb_rpmrc"
+        or die "Error writting bb_rpmrc: $!\n";
+    open MACROS, '>', "$conf->{dir}->{topdir}/bb_rpmmacros"
+        or die "Error writing bb_rpmmacros: $!\n";
+
+    # Start by generating the main specfile header, using information
+    # from the "default" package and non-package info.
+
+    reportline ({level=>2,nline=>0}, "$progname: Writing specfile header: top");
+    print SPEC <<EOF;
+# RPM specfile for $conf->{name} module
+# Generated @{[scalar gmtime]} GMT by Ximian build system
+# $rcsid
+# from $conf->{rcsid}
+
+\%define nam	$conf->{name}
+\%define ver	$conf->{version}
+\%define licensedir	\%{_datadir}/licenses/\%{nam}-\%{ver}
+EOF
+
+    if (exists $conf->{serial} and (ref $conf->{serial} ne "HASH")) {
+        print SPEC "\%define ximrev	$conf->{serial}\n";
+    }
+
+    my $name = ($pack_conf->{name} || $conf->{name} || $conf->{srcname});
+    my $distro = (macro_replace ("distribution") || "Unknown");
+    my $description = (macro_replace ("description") || "Unknown");
+    my $vendor = (macro_replace ("name") || "Unknown");
+
+    print SPEC <<EOF;
+
+Name:     	$name
+Version: 	$conf->{version}
+Release:	$conf->{revision}
+Vendor:		$vendor
+Distribution:	$distro for $description
+Copyright:	$conf->{psdata}->{copyright}
+BuildRoot:	/var/tmp/\%{nam}-\%{ver}-root
+Docdir:         @{[macro_replace ("[[docdir]]")]}
+
+EOF
+    if ($conf->{psdata}->{buildarch}) {
+        print SPEC "BuildArch:      $conf->{psdata}->{buildarch}\n";
+    }
+    print SPEC "URL:\t\t$conf->{psdata}->{url}\n" if ($conf->{psdata}->{url});
+
+    # Don't include an Epoch tag unless we have one set and it's
+    # nonzero.  Epochs are not to be mocked.
+
+    if (exists $conf->{epoch}
+	and $conf->{epoch} ne ""
+	and $conf->{epoch} >= 0) {
+	report (2, ", epoch");
+	print SPEC "Epoch:\t\t$conf->{epoch}\n";
+    }
+
+    # Overloading the Source tag was a horrible idea.  I and some
+    # needle-nose pliers would like some words with whomever thought
+    # of it.  For the sake of sanity and keeping build-buddy.conf
+    # consistent with other package systems, we do not provide a
+    # human-readable URL in the first Source tag.
+
+    # XXX check for complete lack of sources; that's probably
+    # considered "bad".
+
+    if (exists $conf->{source} and $conf->{source}->{i}) {
+	my $i = int 0;
+	for my $handle (@{$conf->{source}->{i}}) {
+            my $file = source_file ($handle, $conf, $plugins{source});
+            unless ($file) {
+                report (1, "\n\n");
+                reportline (1, "Error: could not find file for source $i");
+                exit 1;
+            }
+            report (2, ", source $i");
+            print SPEC "Source$i:\t$file\n";
+	    $i++;
+	}
+    }
+
+    # Enumerate any patches in PatchNN tags.
+
+    my $patched_to = patch_level ();
+    if (defined $patched_to
+       and exists $conf->{patch} and $conf->{patch}->{i}) {
+	my $i = int 0;
+	for (@{$conf->{patch}->{i}}) {
+	    s/-\d+$//;
+	    chomp;
+	    report (2, ", patch $i");
+	    print SPEC "Patch$i:\t\t$_\n";
+	    $i++;
+	    last if $patched_to eq $_;
+	}
+    }
+
+    report ({level=>2,nline=>1}, "... done.");
+
+    # Write out the package's build dependency information, verbatim
+    # from build-buddy.conf.
+
+    my %studlynames = ( 'buildrequires'  => 'BuildRequires',
+			'buildprereqs'   => 'BuildPrereq',
+			'buildconflicts' => 'BuildConflicts' );
+
+    foreach my $field(qw(buildrequires buildprereqs buildconflicts)) {
+	if ($conf->{builddep}->{$field}) {
+	    foreach (@{$conf->{builddep}->{$field}->{i}}) {
+#		report (2, ", $field");
+		print SPEC "$studlynames{$field}:\t" . macro_replace ($_) ."\n";
+	    }
+	}
+    }
+
+    # Loop over the set of all packages and write out the entries
+    # which need to be repeated for every package.  Start with the
+    # "default" package for readability; after that, the order doesn't
+    # matter.
+
+    foreach my $package ('default', grep(!/^default/, @packages)) {
+	my $pack_conf = $conf->{package}->{$package};
+	next unless keys %$pack_conf;
+	my $name = (macro_replace ($pack_conf->{name}) || $package || $conf->{name});
+	my $nameline;
+
+	reportline ({level=>2,nline=>0}, "$progname: Writing $name to spec file... ");
+	if ($package eq 'default') {
+	    $nameline = '';
+	} else {
+	    $nameline = " -n $name";
+	    print SPEC <<EOF;
+
+\%package$nameline
+EOF
+	}
+
+	print SPEC <<EOF;
+Summary:	$pack_conf->{description}->{h}
+Group:		$pack_conf->{psdata}->{group}
+EOF
+
+        my $shortname = macro_replace ("[[shortname]]");
+	push @{$pack_conf->{dep}->{provides}->{i}}, "$shortname-$name = \%{?epoch:\%{epoch}:}\%{version}-\%{?ximrev:\%{ximrev}}\%{!?ximrev:\%{release}}";
+
+
+	# Write out the pacakge's dependency information, verbatim
+	# from build-buddy.conf.
+
+	foreach my $field (qw(requires provides obsoletes prereq conflicts)) {
+	    if ($pack_conf->{dep}->{$field}) {
+		foreach (@{$pack_conf->{dep}->{$field}->{i}}) {
+		    $_ = macro_replace ($_);
+		    print SPEC "\u$field:\t$_\n";
+		}
+	    }
+	}
+
+	# Write out the package description, preserving formatting
+	# from build-buddy.conf and separating paragraphs with a blank
+	# line.
+
+	if ($pack_conf->{description}) {
+	    my $p = $pack_conf->{description}->{p};
+	    print SPEC <<EOF if ($p);
+
+\%description$nameline
+@{[join("\n\n", @$p)]}
+EOF
+	}
+
+	# XXX We probably want to be a little more robust in the files
+	# list, like not hardcoding %defattr and letting maintainers
+	# put arbitrary macros in build-buddy.conf.  But that means
+	# the files lists have to be packsys-specific.  ;_; For now,
+	# hardcode the %defattr macro call, add all the docs listed in
+	# build-buddy.conf, and finally add all the files listed in
+	# build-buddy.conf.
+
+	print SPEC <<EOF;
+
+\%files$nameline
+\%defattr(-, root, root)
+EOF
+	my @docs;
+	foreach (@{$pack_conf->{docs}->{i}}) {
+	    push @docs, macro_replace ($_);
+	}
+	if (@docs) {
+	    print SPEC "\%doc @docs\n";
+	}
+
+	if ($conf->{psdata}->{license}) {
+	    my $lic = macro_replace $conf->{psdata}->{license};
+	    print SPEC "\%license %{licensedir}/$lic\n";
+	}
+
+	foreach (@{$pack_conf->{files}->{i}}) {
+	    # if it starts with @ its an external filelist
+	    if(m/^\@(.*)$/) {
+		open FILELIST, "$1" or die "Error opening $1: $!\n";
+		foreach (<FILELIST>) {
+		    chomp;
+		    $_ = macro_replace($_);
+		    s:^([^/%]):/$1:;
+		    print SPEC "$_\n";
+		}
+	    # standard file list code (list enumerated in conf)
+	    } else {
+		$_ = macro_replace($_);
+	        s:^([^/%]):/$1:;
+		print SPEC "$_\n";
+	    }
+	}
+
+	foreach (@{$pack_conf->{conffiles}->{i}}) {
+	    $_ = macro_replace($_);
+	    s:^([^/%]):/$1:;
+	    print SPEC "\%config(noreplace) $_\n";
+	}
+
+	foreach my $line (@{$pack_conf->{nofiles}->{i}}) {
+	    $line = macro_replace ($line);
+	    $line =~ s:^([^/%]):/$1:;
+	    print SPEC "\%exclude $line\n";
+	}
+
+	print SPEC "\n";
+
+	# Add entries for postinst/postrm scripts if the package has
+	# any.
+
+	if ($pack_conf->{script}->{postinst} and $pack_conf->{script}->{postinst}->{i}) {
+	    print SPEC <<EOF;
+
+\%post$nameline
+EOF
+	    foreach (@{$pack_conf->{script}->{postinst}->{i}}) {
+		my $entry;
+		if (ref $_ eq 'HASH') {
+		    # Deprecated for now.
+		    # $entry = $packsys_info->{script_tags}->{(keys %$_)[0]};
+		} else {
+		    $entry = macro_replace($_);
+		}
+		chomp $entry;
+		print SPEC "$entry\n";
+	    }
+	}
+
+	if ($pack_conf->{script}->{preinst} and $pack_conf->{script}->{preinst}->{i}) {
+	    print SPEC <<EOF;
+
+\%pre$nameline
+EOF
+	    foreach (@{$pack_conf->{script}->{preinst}->{i}}) {
+		my $entry;
+		if (ref $_ eq 'HASH') {
+		    # Deprecated for now.
+		    # $entry = $packsys_info->{script_tags}->{(keys %$_)[0]};
+		} else {
+		    $entry = macro_replace($_);
+		}
+		chomp $entry;
+		print SPEC "$entry\n";
+	    }
+	}
+
+	if ($pack_conf->{script}->{prerm} and $pack_conf->{script}->{prerm}->{i}) {
+	    print SPEC <<EOF;
+
+\%prerm$nameline
+EOF
+	    foreach (@{$pack_conf->{script}->{prerm}->{i}}) {
+		my $entry;
+		if (ref $_ eq 'HASH') {
+		    # Deprecated for now.
+		    # $entry = $packsys_info->{script_tags}->{(keys %$_)[0]};
+		} else {
+		    $entry = macro_replace($_);
+		}
+		chomp $entry;
+		print SPEC "$entry\n";
+	    }
+	}
+
+	if ($pack_conf->{script}->{postrm} and $pack_conf->{script}->{postrm}->{i}) {
+	    print SPEC <<EOF;
+
+\%postun$nameline
+EOF
+	    foreach (@{$pack_conf->{script}->{postrm}->{i}}) {
+		my $entry;
+		if (ref $_ eq 'HASH') {
+		    # Deprecated for now.
+		    # $entry = $packsys_info->{script_tags}->{(keys %$_)[0]};
+		} else {
+		    $entry = macro_replace($_);
+		}
+		chomp $entry;
+		print SPEC "$entry\n";
+	    }
+	}
+
+	if ($pack_conf->{script}->{preuninst} and $pack_conf->{script}->{preuninst}->{i}) {
+	    print SPEC <<EOF;
+
+\%preun$nameline
+EOF
+	    foreach (@{$pack_conf->{script}->{preuninst}->{i}}) {
+		my $entry;
+		if (ref $_ eq 'HASH') {
+		    # Deprecated for now.
+		    # $entry = $packsys_info->{script_tags}->{(keys %$_)[0]};
+		} else {
+		    $entry = macro_replace($_);
+		}
+		chomp $entry;
+		print SPEC "$entry\n";
+	    }
+	}
+
+	if ($pack_conf->{script}->{triggerpostun} and $pack_conf->{script}->{triggerpostun}->{i} and $pack_conf->{script}->{triggerpostun}->{trigger}) {
+	    print SPEC <<EOF;
+
+\%triggerpostun $nameline -- $pack_conf->{script}->{triggerpostun}->{trigger}
+EOF
+	    foreach (@{$pack_conf->{script}->{triggerpostun}->{i}}) {
+		my $entry;
+		if (ref $_ eq 'HASH') {
+		    # Deprecated for now.
+		    # $entry = $packsys_info->{script_tags}->{(keys %$_)[0]};
+		} else {
+		    $entry = macro_replace($_);
+		}
+		chomp $entry;
+		print SPEC "$entry\n";
+	    }
+	}
+
+	if ($pack_conf->{script}->{triggerun} and $pack_conf->{script}->{triggerun}->{i} and $pack_conf->{script}->{triggerun}->{trigger}) {
+	    print SPEC <<EOF;
+
+\%triggerun $nameline -- $pack_conf->{script}->{triggerun}->{trigger}
+EOF
+	    foreach (@{$pack_conf->{script}->{triggerun}->{i}}) {
+		my $entry;
+		if (ref $_ eq 'HASH') {
+		    # Deprecated for now.
+		    # $entry = $packsys_info->{script_tags}->{(keys %$_)[0]};
+		} else {
+		    $entry = macro_replace($_);
+		}
+		chomp $entry;
+		print SPEC "$entry\n";
+	    }
+	}
+
+	report ({level=>2,nline=>1}, "done");
+    }
+
+    my $extraopts = '';
+    if ($#{$conf->{source}->{i}} > 0) {
+	$extraopts = '-c';
+    }
+
+    reportline ({level=>2,nline=>0}, "$progname: Finishing up spec file... ");
+    print SPEC <<EOF;
+
+# \$RPM_COMMAND is an environment variable used by the Ximian build
+# system to control the build process with finer granularity than RPM
+# normally allows.  This specfile will function as expected by RPM if
+# \$RPM_COMMAND is unset.  If you are not the Ximian build system,
+# feel free to ignore it.
+
+\%prep
+case "\${RPM_COMMAND:-all}" in
+dist)
+\%setup $extraopts -q -D -n $conf->{tardir}
+    ;;
+all)
+\%setup $extraopts -q -n $conf->{tardir}
+    ;;
+esac
+EOF
+
+    # We've already unpacked the first source; add the rest iff there
+    # is more than one source tag listed in build-buddy.conf.
+
+    if ($#{$conf->{source}->{i}} > 0) {
+	print SPEC <<EOF;
+case "\${RPM_COMMAND:-all}" in
+dist|all)
+EOF
+	for (1..$#{$conf->{source}->{i}}) {
+	    print SPEC "\%setup $extraopts -n $conf->{tardir} -q -D -T -a $_\n";
+	}
+
+	print SPEC <<EOF;
+    ;;
+esac
+EOF
+    }
+
+    # Find out if there are any patches in the x-b.conf, and how many
+    # were applied by bb_unpack.  Add them here too, for application
+    # in %prep.
+
+    # $patched_to is set above when we write out the Patch: sections
+
+    my $n = -1;
+    if (defined $patched_to) {
+       foreach (@{$conf->{patch}->{i}}) {
+           $n++;
+           last if $patched_to eq $_;
+       }
+    }
+    if ($n >= 0) {
+	print SPEC <<EOF;
+case "\${RPM_COMMAND:-all}" in
+dist|all)
+EOF
+        print SPEC "\%patch -p1 -P $_\n" for (0 .. $n);
+	print SPEC <<EOF;
+    ;;
+esac
+EOF
+    }
+
+    print SPEC <<EOF;
+
+\%build
+MAKE=\${MAKE:-make}
+RPM_COMMAND=\${RPM_COMMAND:-all}
+DESTDIR=\${DESTDIR:-"\$RPM_BUILD_ROOT"}
+ARCH=\%{_target_platform}
+export MAKE RPM_COMMAND DESTDIR ARCH
+case "\$RPM_COMMAND" in
+prepare|all)
+    @{[macro_replace($conf->{prepare})]}
+    ;;
+esac
+case "\$RPM_COMMAND" in
+clean|all)
+    if [ "/" != "\$DESTDIR" ]; then
+	rm -rf "\$DESTDIR"
+    fi
+    ;;
+esac
+case "\$RPM_COMMAND" in
+build|all)
+    @{[macro_replace($conf->{compile})]}
+    ;;
+esac
+
+\%install
+MAKE=\${MAKE:-make}
+DESTDIR=\${DESTDIR:-"\$RPM_BUILD_ROOT"}
+# export DESTDIR
+case "\${RPM_COMMAND:-all}" in
+install|all)
+    @{[macro_replace($conf->{install})]}
+EOF
+    print SPEC "# Remove unwanted files before pack stage.\n"
+        if defined $conf->{nofiles}->{i};
+    print SPEC "    rm -rf \$DESTDIR" . macro_replace ($_) . "\n"
+	foreach (@{$conf->{nofiles}->{i}});
+    if ($conf->{psdata}->{license}) {
+	print SPEC "    mkdir -p \$DESTDIR/%licensedir\n";
+	print SPEC "    cp $conf->{psdata}->{license} " .
+	    "\$DESTDIR/%licensedir/.\n";
+    }
+    print SPEC <<EOF;
+    ;;
+esac
+
+\%clean
+DESTDIR=\${DESTDIR:-"\$RPM_BUILD_ROOT"}
+export DESTDIR
+case "\${RPM_COMMAND:-all}" in
+clean|all)
+    if [ "/" != "\$DESTDIR" ]; then
+	rm -rf "\$DESTDIR"
+    fi
+    ;;
+esac
+EOF
+
+    print SPEC "\n\n\%changelog\n";
+=pod
+    foreach (@{$log->{entry}}) {
+	$_->{date} =~ /^(\S+)\s+(\S+)\s+(\d+)\s+(\d+):(\d+):(\d+)\s+(\S+)\s+(\d+)$/ or die "Cannot parse date: $_->{date}. Do you have an old Changelog.xml?";
+	my $date = "$1 $2 $3 $8";
+	
+	print SPEC "* $date $_->{author}\n\n";
+	print SPEC "- Version: " . ($_->{epoch}? "$_->{epoch}:" : "") .
+		   "$_->{version}-$_->{release}\n";
+	foreach my $heading (@{$_->{changes}->{h}}) {
+	    $heading =~ s/\n/\n    /g;
+	    print SPEC "- Summary: $heading\n";
+	}
+	foreach my $par (@{$_->{changes}->{p}}) {
+	    $par =~ s/\n/\n    /g;
+	    print SPEC "- $par\n";
+	}
+	print SPEC "\n";
+    }
+=cut
+    report (2, "done\n\n");
+
+    # Query RPM for its current set of macro file locations.  We're
+    # expecting a line along the lines of "macrofiles : stuff".
+
+    reportline ({level=>2,nline=>0}, "$progname: Writing rpmrc... ");
+    my $rpmbuild = (macro_replace ("[[rpmbuild_cmd]]" || "rpmbuild"));
+    foreach (`$rpmbuild --showrc 2>/dev/null`) {
+	$macrolist = $1 if (/^macrofiles\s*:\s*(\S+)\s*$/);
+    }
+    $macrolist = ($macrolist || '/usr/lib/rpm/macros:/usr/lib/rpm/%{_target}/macros:/etc/rpm/macros:/etc/rpm/%{_target}/macros');
+
+    print RPMRC "macrofiles:     $macrolist:$conf->{dir}->{topdir}/bb_rpmmacros\n";
+    report (2, "done\n\n");
+
+    reportline ({level=>2,nline=>0}, "$progname: Writing rpmmacros... ");
+
+    my $install_post = "\%__os_install_post";
+    if ($target =~ /redhat-62/) {
+        $install_post = "\%__spec_install_post";
+    }
+
+    my $find_requires = get_dir ('bb_packsys') . "/rpm/find-requires";
+    if ($pack_conf->{script}->{find_requires}) {
+	$find_requires = "$conf->{dir}->{topdir}/bb_find_requires";
+	open FRQ, ">$find_requires"
+	    or die "Error writing bb_find_requires: $!\n";
+	print FRQ "$_\n"
+	    foreach (@{$pack_conf->{script}->{find_requires}->{i}});
+	close FRQ;
+	chmod 0755, $find_requires;
+    }
+    my $find_provides = ""; # won't override the rpm default (see below)
+    if ($pack_conf->{script}->{find_provides}) {
+	$find_provides = "$conf->{dir}->{topdir}/bb_find_provides";
+	open FPR, ">$find_provides"
+	    or die "Error writing bb_find_provides: $!\n";
+	print FPR "$_\n"
+	    foreach (@{$pack_conf->{script}->{find_provides}->{i}});
+	close FPR;
+	chmod 0755, $find_provides;
+    }
+    print MACROS <<EOF;
+\%_topdir	@{[get_dir ('topdir')]}
+\%_sourcedir	@{[get_dir ('srcdir')]}
+\%_builddir	@{[get_dir ('builddir')]}
+\%buildroot	@{[get_dir ('tmpinstdir')]}
+\%_rpmdir	@{[get_dir ('archivedir')]}
+\%_srcrpmdir	@{[get_dir ('src_archivedir')]}
+\%_install_script_path	$ENV{PATH}
+\%_rpmfilename	\%\%{NAME}-\%\%{VERSION}-\%\%{RELEASE}.\%\%{ARCH}.rpm
+\%_noPayloadPrefix 1
+\%__check_files	@{[get_dir ("bb_packsys")]}/rpm/check-files $conf->{dir}->{tmpinstdir}
+\%_use_internal_dependency_generator 0
+\%__find_requires $find_requires
+EOF
+    print MACROS "\%__find_provides $find_provides\n"
+	if ($find_provides);
+
+    print MACROS "\%__spec_build_pre	\%{___build_pre}\n"
+	if $target =~ /(suse|sles-9|nld)/;
+
+    # libdir points to /usr/lib64 on x86_64 with the macros we use
+    # we may have to not restrict this to redhat/suse, we'll see
+    if ($target =~ /(rhel|sles|suse|sles).*x86_64/) {
+        print MACROS "$install_post /usr/lib/rpm/brp-compress\n";
+    } else {
+        print MACROS "$install_post \%{_libdir}/rpm/brp-compress\n";
+    }
+
+    unless ($conf->{unstripped}) {
+        print MACROS "$install_post @{[get_dir (\"bb_packsys\")]}/rpm/brp-strip-all\n";
+    }
+
+    close SPEC;
+    close RPMRC;
+    close MACROS;
+
+    report (2, "done\n\n");
+}
+
+sub do_source_rpm () {
+    chdir get_dir ("topdir") or die "chdir @{[get_dir ('topdir')]}: $!\n";
+    $ENV{RPM_COMMAND}='source';
+    my $rpmbuild = (macro_replace ("[[rpmbuild_cmd]]" || "rpmbuild"));
+    my $rpmlibs = (get_dir ("rpmlibdir") || "/usr/lib/rpm");
+    run_or_die "$rpmbuild --rcfile $rpmlibs/rpmrc:$conf->{dir}->{topdir}/bb_rpmrc -bs $conf->{name}.spec";
+}
+
+sub do_prepare_rpm () {
+    chdir get_dir ("topdir") or die "chdir @{[get_dir ('topdir')]}: $!\n";
+    $ENV{RPM_COMMAND}='prepare';
+    my $rpmbuild = (macro_replace ("[[rpmbuild_cmd]]" || "rpmbuild"));
+    my $rpmlibs = (get_dir ("rpmlibdir") || "/usr/lib/rpm");
+    run_or_die "$rpmbuild --rcfile $rpmlibs/rpmrc:$conf->{dir}->{topdir}/bb_rpmrc --short-circuit -bc $conf->{name}.spec";
+}
+
+sub do_clean_rpm () {
+    chdir get_dir ("topdir") or die "chdir @{[get_dir ('topdir')]}: $!\n";
+    $ENV{RPM_COMMAND}='clean';
+    my $rpmbuild = (macro_replace ("[[rpmbuild_cmd]]" || "rpmbuild"));
+    my $rpmlibs = (get_dir ("rpmlibdir") || "/usr/lib/rpm");
+    run_or_die "$rpmbuild --rcfile $rpmlibs/rpmrc:$conf->{dir}->{topdir}/bb_rpmrc --short-circuit -bc $conf->{name}.spec";
+}
+
+sub do_build_rpm () {
+    chdir get_dir ("topdir") or die "chdir @{[get_dir ('topdir')]}: $!\n";
+    $ENV{RPM_COMMAND}='build';
+    my $rpmbuild = (macro_replace ("[[rpmbuild_cmd]]" || "rpmbuild"));
+    my $rpmlibs = (get_dir ("rpmlibdir") || "/usr/lib/rpm");
+    run_or_die "$rpmbuild --rcfile $rpmlibs/rpmrc:$conf->{dir}->{topdir}/bb_rpmrc --short-circuit -bc $conf->{name}.spec";
+}
+
+sub do_install_rpm () {
+    chdir get_dir ("topdir") or die "chdir @{[get_dir ('topdir')]}: $!\n";
+    $ENV{RPM_COMMAND}='install';
+    my $rpmbuild = (macro_replace ("[[rpmbuild_cmd]]" || "rpmbuild"));
+    my $rpmlibs = (get_dir ("rpmlibdir") || "/usr/lib/rpm");
+    run_or_die "$rpmbuild --rcfile $rpmlibs/rpmrc:$conf->{dir}->{topdir}/bb_rpmrc --short-circuit -bi $conf->{name}.spec";
+}
+
+sub do_pack_rpm () {
+    chdir get_dir ("topdir") or die "chdir @{[get_dir ('topdir')]}: $!\n";
+    $ENV{RPM_COMMAND}='pack';
+    my $rpmbuild = (macro_replace ("[[rpmbuild_cmd]]" || "rpmbuild"));
+    my $rpmlibs = (get_dir ("rpmlibdir") || "/usr/lib/rpm");
+    run_or_die "$rpmbuild --rcfile $rpmlibs/rpmrc:$conf->{dir}->{topdir}/bb_rpmrc -bb $conf->{name}.spec";
+}
+
+# Check for any package-system-specific necessary items in build-buddy.conf
+sub check_conf_rpm () {
+    my $build_conf = $conf->{build}->{default};
+    my $pack_conf = $build_conf->{package}->{default};
+    my @packages = keys %{$build_conf->{package}};
+
+    die "rpm backend: No copyright psdata defined\n"
+        unless ($conf->{psdata}->{copyright});
+
+    foreach (@{$conf->{source}->{i}}) {
+	$_ = macro_replace ($_);
+        unless ($_ =~ /^(CVS|HTTP|FTP|SVN) /) {
+	    die "rpm backend: no such source file: $_\n"
+	        unless (-e $_);
+        }
+    }
+
+    my $patched_to = patch_level ();
+    if (defined $patched_to) {
+	foreach (@{$conf->{patch}->{i}}) {
+	    die "rpm backend: no such patch file: $_\n"
+		unless (-e $_);
+	    last if $patched_to eq $_;
+	}
+    }
+
+    foreach my $package (@packages) {
+	my $pack_conf = $build_conf->{package}->{$package};
+	next unless keys %$pack_conf;
+
+	die "rpm backend: no group specified for package $package\n"
+	    unless ($pack_conf->{psdata}->{group});
+    }
+
+}
+
+sub full_version_rpm {
+    my ($conf) = @_;
+    return "$conf->{epoch}:$conf->{version}-$conf->{revision}" if (defined $conf->{epoch});
+    return "$conf->{version}-$conf->{revision}";
+}
+
+########################################################################
+#
+# Begin dpkg-specific handlers
+#
+
+sub dpkg_write_changelog () {
+    if (-e "./debian/changelog") {
+	run_or_die "cp ./debian/changelog ./debian/changelog.bb";
+    }
+    open CHANGEOUT, ">./debian/changelog"
+	|| die "Error opening ./debian/changelog for writing\n";
+=pod
+    foreach (@{$log->{entry}}) {
+	$_->{release} = "-" . "$_->{release}" if !($_->{release} =~ /\+.*/);
+	print CHANGEOUT "$_->{module} (" .
+		        ($_->{epoch} ? "$_->{epoch}:" : "") .
+			"$_->{version}$_->{release}) unstable; " .
+			"urgency=low\n\n";
+	foreach my $heading (@{$_->{changes}->{h}}) {
+	    $heading =~ s/\n/\n    /g;
+	    print CHANGEOUT "  * Summary: $heading\n";
+	}
+	foreach my $par (@{$_->{changes}->{p}}) {
+	    $par =~ s/\n/\n    /g;
+	    print CHANGEOUT "  * $par\n";
+	}
+
+	$_->{date} =~ /^(\S+)\s+(\S+)\s+(\d+)\s+(\d+):(\d+):(\d+)\s+(\S+)\s+(\d+)$/ or die "Cannot parse date: $_->{date}. Do you have an old Changelog.xml?";
+	my $date = "$1, $3 $2 $8 $4:$5:$6 -0000";
+	print CHANGEOUT "\n -- $_->{author} <$_->{email}>  $date\n\n";
+    }
+    print CHANGEOUT <<EOF; 
+Local variables:
+mode: debian-changelog
+End:
+EOF
+=cut
+    close CHANGEOUT;
+}
+
+sub do_dist_dpkg () {
+    my $build_conf = $conf->{build}->{default};
+    my @packages = keys %{$build_conf->{package}};
+    my $dh_compat = 1;
+
+    chdir "@{[get_dir ('builddir')]}/$conf->{tardir}"
+	or die "chdir @{[get_dir ('builddir')]}/$conf->{tardir}: $!\n";
+
+    report (2, "$progname: Creating debian/ directory... ");
+    run_or_die "mkdir -p ./debian";
+    reportline (2, "done.");
+
+
+    open (RULES, ">debian/rules") 
+	or die "Error writing debian/rules: $!\n";
+    open (CONTROL, ">debian/control")
+	or die "Error writing debian/control: $!\n";
+
+    foreach (qw(compile prepare install)) {
+	# Insert a tab at the beginning of each line, so make doesn't
+	# barf on multiline entries.
+	$build_conf->{$_} =~ s/^/\t/g;
+    }
+
+    # Debhelper v2 requires a files list for the default package.
+    # Debhelper v1 behaviour prohibits it.  We decide which to use
+    # based on whether or not there's a files list specified for the
+    # "default" package in build-buddy.conf.
+
+    $dh_compat = 2 if ($build_conf->{package}->{default}->{files}->{i});
+
+    report (2, "$progname: Writing debian/rules... ");
+    print RULES <<EOF;
+#!/usr/bin/make -f
+
+# Debian rules file for $conf->{name} module
+# Generated @{[scalar gmtime]} GMT by Ximian build system
+# $rcsid
+# from $conf->{rcsid}
+
+version=$conf->{version}
+export DH_COMPAT=$dh_compat
+
+# We should still pass DESTDIR on the submake command line, since
+# automake-generated Makefiles override \$(DESTDIR) explicitly.
+export BB_ARCHIVEDIR?=..
+export TOPSRCDIR:=\$(shell pwd)
+export DESTDIR?=\${TOPSRCDIR}/debian/tmp
+export ARCH:=\$(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+build: build-stamp
+build-stamp: prepare-stamp
+	dh_testdir
+@{[macro_replace($build_conf->{compile})]}
+	touch build-stamp
+
+prepare: prepare-stamp
+prepare-stamp:
+	dh_testdir
+	dh_clean
+@{[macro_replace($build_conf->{prepare})]}
+	touch prepare-stamp
+
+install: install-stamp
+install-stamp: build-stamp
+	dh_testdir
+	dh_testroot
+	dh_clean
+@{[macro_replace($build_conf->{install})]}
+
+binary-indep:
+
+binary-arch: install-stamp
+	dh_testdir
+	dh_testroot
+	dh_installdirs
+	dh_movefiles
+	dh_installdocs
+	dh_installinfo
+	dh_installmenu
+	dh_installpam
+	dh_installexamples
+	dh_installdebconf
+EOF
+    print RULES "\tdh_installinit -r";
+    print RULES " -- $conf->{psdata}->{initmodes}"
+      if (exists $conf->{psdata}->{initmodes} and $conf->{psdata}->{initmodes} ne '');
+    print RULES "\n";
+
+print RULES <<EOF;
+	dh_undocumented
+	dh_makeshlibs
+	dh_perl
+	dh_installchangelogs
+EOF
+
+    foreach my $package ('default', grep(!/^default$/, @packages)) {
+        my $pack_conf = $build_conf->{package}->{$package};
+	next unless keys %$pack_conf;
+        my $name = (macro_replace ($pack_conf->{name}) || $package);
+
+        if ($pack_conf->{psdata}->{changelog}) {
+            my $pack = '';
+            if ($package ne 'default') {
+                $pack = "-p$package";
+            }
+            print RULES "\tdh_installchangelogs $pack $pack_conf->{psdata}->{changelog}\n";
+        }
+    }
+
+print RULES <<EOF;
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+EOF
+    print RULES "\tdh_strip -Xdebug\n" unless ($conf->{unstripped});
+print RULES <<EOF;
+	dh_md5sums
+	dh_builddeb --destdir=\$(BB_ARCHIVEDIR)
+
+source diff:
+	\@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+package binary: binary-indep binary-arch
+
+.PHONY: build prepare clean install binary source diff package
+EOF
+    reportline (2, "done.");
+
+    report (2, "$progname: Writing debian/control header... ");
+    print CONTROL <<EOF;
+Source: @{[macro_replace ($conf->{srcname})]}
+Priority: $conf->{psdata}->{priority}
+Section: $conf->{psdata}->{section}
+Maintainer: Ximian, Inc. <debian\@ximian.com>
+Standards-Version: @{[macro_replace ("standards_version")]}
+EOF
+
+    foreach my $field (qw(build-depends build-conflicts build-depends-indep build-conflicts-indep)) {
+	(my $fn = $field) =~ s/(^|[^A-Za-z])([A-Za-z])/$1\u$2/g;
+	print CONTROL "$fn: @{[join(', ', @{$build_conf->{builddep}->{$field}->{i}})]}\n"
+	    if ($build_conf->{builddep}->{$field}->{i});
+    }
+
+    reportline (2, "done");
+
+    # The first package in the control file is the default package
+    # for the debhelper commands; make sure we write it first.
+    foreach my $package ('default', grep(!/^default$/, @packages)) {
+	my $pack_conf = $build_conf->{package}->{$package};
+	next unless keys %$pack_conf;
+	my $name = (macro_replace ($pack_conf->{name}) || $package);
+	my $namepre;
+
+	report (2, "$progname: Writing $name info: files");
+	if ($package eq 'default' && !($pack_conf->{files}->{i})) {
+	    $namepre = '';
+	} else {
+	    $namepre = "${name}.";
+	}
+
+	if ($pack_conf->{files}->{i}) {
+	    open FILES, ">debian/${namepre}files"
+		|| die "Error writing debian/${namepre}files: $!\n";
+	    foreach (@{$pack_conf->{files}->{i}}) {
+	    # if it starts with @ its an external filelist
+		if(m/^\@/) {
+		    s/^\@//;
+		    open FILELIST, "$conf->{dir}->{topdir}/$_";
+		    foreach (<FILELIST>) {
+			chomp;
+			$_ = macro_replace($_);
+			# dpkg wants no leading slashes in file lists
+		        s:^/::;
+			print FILES "$_\n";
+		    }
+		    # standard file list code (list enumerated in conf)
+		} else {
+		    $_ = macro_replace($_);
+		    # dpkg wants no leading slashes in file lists
+	            s:^/::;
+		    print FILES "$_\n";
+		}
+	    }
+	    close FILES;
+	}
+
+	my @docs;
+	foreach (@{$pack_conf->{docs}->{i}}) {
+	    push @docs, macro_replace ($_);
+	}
+	if (@docs) {
+	    report (2, ", docs");
+	    open DOCS, ">debian/${namepre}docs"
+		|| die "Error writing debian/${namepre}docs: $!\n";
+	    print DOCS "@docs\n";
+	    close DOCS;
+	}
+
+	if ($pack_conf->{conffiles}->{i}) {
+	    report (2, ", conffiles");
+	    open CONFFILES, ">debian/${namepre}conffiles"
+		|| die "Error writing debian/${namepre}conffiles: $!\n";
+	    foreach (@{$pack_conf->{conffiles}->{i}}) {
+		# dpkg wants leading slashes in this file list
+		$_ = macro_replace($_);
+		print CONFFILES "$_\n";
+	    }
+	    close CONFFILES;
+	}
+
+	# Write postinst
+	if ($pack_conf->{script}->{postinst} and $pack_conf->{script}->{postinst}->{i}) {
+	    report (2, ", postinst");
+	    open POSTINST, ">debian/${namepre}postinst"
+		|| die "Error writing debian/${namepre}postinst: $!\n";
+	    print POSTINST <<EOF;
+#!/bin/sh
+set -e
+case "\$1" in
+    configure*)
+EOF
+
+	    foreach (@{$pack_conf->{script}->{postinst}->{i}}) {
+		my $entry = macro_replace($_);
+		chomp $entry;
+		print POSTINST "\t$entry\n";
+	    }
+
+print POSTINST <<EOF;
+	;;
+    *)
+	;;
+esac
+#DEBHELPER#
+EOF
+	    close POSTINST;
+	    chmod 0755, "debian/${namepre}postinst";
+	}
+
+	# Write preinst script
+	if ($pack_conf->{script}->{preinst} and $pack_conf->{script}->{preinst}->{i}) {
+	    report (2, ", preinst");
+	    open PREINST, ">debian/${namepre}preinst"
+		|| die "Error writing debian/${namepre}preinst: $!\n";
+	    print PREINST <<EOF;
+#!/bin/sh
+set -e
+EOF
+	    foreach (@{$pack_conf->{script}->{preinst}->{i}}) {
+		my $entry = macro_replace($_);
+		chomp $entry;
+		print PREINST "\t$entry\n";
+	    }
+
+	    print PREINST <<EOF;
+#DEBHELPER#
+EOF
+	    close PREINST;
+	    chmod 0755, "debian/${namepre}preinst";
+	}
+
+	# Write postrm script
+	if ($pack_conf->{script}->{postrm} and $pack_conf->{script}->{postrm}->{i}) {
+	    report (2, ", postrm");
+	    open POSTRM, ">debian/${namepre}postrm"
+		|| die "Error writing debian/${namepre}postrm: $!\n";
+	    print POSTRM <<EOF;
+#!/bin/sh
+set -e
+case "\$1" in
+    abort-install|purge|remove)
+EOF
+
+	    foreach (@{$pack_conf->{script}->{postrm}->{i}}) {
+		my $entry = macro_replace($_);
+		chomp $entry;
+		print POSTRM "\t$entry\n";
+	    }
+
+print POSTRM <<EOF;
+	;;
+    *)
+        ;;
+esac
+#DEBHELPER#
+EOF
+	    close POSTRM;
+	    chmod 0755, "debian/${namepre}postrm";
+	}
+
+	# Write control file
+	report (2, ", control info");
+	print CONTROL "\nPackage: " . macro_replace ($pack_conf->{name}) . "\n";
+	print CONTROL "Architecture: $pack_conf->{psdata}->{architecture}\n"
+	    if ($pack_conf->{psdata}->{architecture});
+	print CONTROL "Section: $pack_conf->{psdata}->{section}\n"
+	    if ($pack_conf->{psdata}->{section});
+
+        my $ver = "$conf->{epoch}:" if $conf->{epoch};
+        $ver .= (exists $conf->{serial}
+		 ? "$conf->{version}-$conf->{serial}"
+		 : "$conf->{version}-$conf->{rev}");
+
+        my $shortname = macro_replace ("[[shortname]]");
+	push @{$pack_conf->{dep}->{provides}->{i}}, "$shortname-$pack_conf->{name}";
+
+	foreach my $field (qw(depends pre-depends suggests recommends conflicts provides replaces)) {
+	    (my $fn = $field) =~ s/(^|[^A-Za-z])([A-Za-z])/$1\u$2/g;
+	    print CONTROL "$fn: @{[join(', ', @{$pack_conf->{dep}->{$field}->{i}})]}\n"
+		if ($pack_conf->{dep}->{$field}->{i});
+	}
+	if ($pack_conf->{description}) {
+	    my $p;
+	    my @para;
+	    print CONTROL "Description: $pack_conf->{description}->{h}\n";
+	    if ($p = $pack_conf->{description}->{p}) {
+		@para = @$p;
+		grep {s/^([^\ ])/ $1/; s/\n$//; s/\n/\n /g;} @para;
+		print CONTROL join("\n .\n", @para), "\n";
+	    }
+	}
+	reportline (2, "... done");
+    }
+
+    close RULES;
+    close CONTROL;
+
+    chmod 0755, 'debian/rules';
+
+    # The directory which contains the debian/ directory template for
+    # a package should be named identically to the cvs module
+    # containing build-buddy.conf.  Don't change this, please.  -mike
+
+    if (-d "$conf->{dir}->{topdir}/deb") {
+        opendir (DEBDIR, "$conf->{dir}->{topdir}/deb")
+	    || die "Error opening directory $conf->{dir}->{topdir}/deb: $!\n";
+	report (2, "$progname: Copying in $conf->{dir}->{topdir}/deb:");
+	foreach (grep {!/^\.\.?$ |
+                         ^CVS$ |
+                         .*~$ |
+                         ^\#.*\#$/x} readdir DEBDIR) {
+	    report (2, " $_");
+	    copy ("$conf->{dir}->{topdir}/deb/$_", "./debian/$_")
+		|| die "Error copying ./debian/$_: $!\n";
+	}
+	reportline (2, "... done");
+	closedir DEBDIR;
+    }
+
+    # instead of using the deb/ directory, debian files can be
+    # written out inline in the build-buddy.conf, with the
+    # <metadata id="foo"> tag (which writes out file "foo" in the debian/
+    # directory).
+
+    if ($build_conf->{metadata}) {
+	report (2, "$progname: Creating files in debian/ directory:");
+
+        foreach my $debfile (keys %{$build_conf->{metadata}}) {
+	    report (2, " $debfile");
+	    open (DEBFILE, ">./debian/$debfile")
+		|| die "Error opening ./debian/$debfile: $!\n";
+
+	    print DEBFILE "$build_conf->{metadata}->{$debfile}\n"
+	}
+        report ({level=>2,nline=>1}, "... done.");
+    }
+
+    dpkg_write_changelog ();
+
+    chdir "$conf->{dir}->{topdir}"
+	|| die "chdir $conf->{dir}->{topdir}: $!\n";
+}
+
+sub do_source_dpkg () {
+    chdir "$conf->{dir}->{builddir}/$conf->{tardir}"
+	|| die "chdir $conf->{dir}->{builddir}/$conf->{tardir}: $!\n";
+
+    report (2, "$progname: Cleaning src directory...");
+    my $make = ($ENV{MAKE} || "make");
+    $make = $make->{content} if ref $make;
+    run_or_die "$make distclean" if (-e 'Makefile');
+    run_or_die "dh_clean";
+    run_or_die "rm -f config.log";
+    reportline (2, " done.");
+
+    # dpkg-source likes to scribble all over the cwd.  Make a
+    # per-process temp dir for it to play in.
+
+    my $tmpdir = ($ENV{'TMPDIR'} || '/tmp') . "/bbtmp-$$";
+
+    my $tarname;
+    my $base = macro_replace ($conf->{srcname});
+
+    if ($conf->{tarname}) {
+	$tarname = Ximian::BB::Conf::macro_replace ($conf->{tarname});
+    } elsif ($conf->{tardir}) {
+	$tarname = "$conf->{tardir}.tar.gz";
+    } else {
+	$tarname = "$base-$conf->{version}.tar.gz";
+    }
+
+    my $debtarname = "${base}_$conf->{version}.orig.tar.gz";
+    my $debdirname = "${base}-$conf->{version}";
+    # XXX may want to handle these a bit better, but debian allows for
+    # repackaging of upstream sources anyway.
+
+    die "Error opening $conf->{dir}->{srcdir}/$tarname\n"
+	unless (-e "$conf->{dir}->{srcdir}/$tarname");
+    report (2, "$progname: Making temp dir for source package...");
+    mkdir $tmpdir, 0777 || die "mkdir $tmpdir: $!\n";
+    chdir $tmpdir || die "chdir $tmpdir: $!\n";
+    reportline (2, " done.");
+    report (2,
+	    "$progname: Copying $tarname and symlinking source dir into temp dir...");
+    copy "$conf->{dir}->{srcdir}/$tarname", "$debtarname";
+    symlink "$conf->{dir}->{builddir}/$conf->{tardir}", "$debdirname";
+    reportline (2, " done.");
+    reportline (2, "$progname: Building source package in temp dir.");
+    run_or_die "dpkg-source -i$osconf->{psdata}->{ignore_re} -sk -b $debdirname $debtarname";
+    report (2, "$progname: Copying files into archive dir: $debtarname");
+    copy($debtarname, get_dir ("src_archivedir"));
+    foreach my $file (glob("*.{diff.gz,dsc}")) {
+	report (2, " $file");
+	copy($file, get_dir ("src_archivedir"));
+    }
+    report ({level=>2,nline=>1}, "... done.");
+
+    chdir $conf->{dir}->{topdir} || die "chdir $conf->{dir}->{topdir}: $!\n";
+    run_or_die "rm -rf $tmpdir";
+}
+
+sub do_prepare_dpkg () {
+    chdir "$conf->{dir}->{builddir}/$conf->{tardir}" || die "chdir $conf->{dir}->{builddir}/$conf->{tardir}: $!\n";
+    my $make = ($ENV{MAKE} || "make");
+    $make = $make->{content} if ref $make;
+    run_or_die "$make -f debian/rules prepare";
+    chdir "$conf->{dir}->{topdir}" || die "chdir $conf->{dir}->{topdir}: $!\n";
+}
+
+sub do_clean_dpkg () {
+    chdir "$conf->{dir}->{builddir}/$conf->{tardir}" || die "chdir $conf->{dir}->{builddir}/$conf->{tardir}: $!\n";
+    run_or_die "dh_clean";
+    chdir "$conf->{dir}->{topdir}" || die "chdir $conf->{dir}->{topdir}: $!\n";
+}
+
+sub do_build_dpkg () {
+    chdir "$conf->{dir}->{builddir}/$conf->{tardir}" || die "chdir $conf->{dir}->{builddir}/$conf->{tardir}: $!\n";
+    my $make = ($ENV{MAKE} || "make");
+    $make = $make->{content} if ref $make;
+    run_or_die "$make -f debian/rules build";
+    chdir "$conf->{dir}->{topdir}" || die "chdir $conf->{dir}->{topdir}: $!\n";
+}
+
+sub do_install_dpkg () {
+    chdir "$conf->{dir}->{builddir}/$conf->{tardir}" || die "chdir $conf->{dir}->{builddir}/$conf->{tardir}: $!\n";
+    my $make = ($ENV{MAKE} || "make");
+    $make = $make->{content} if ref $make;
+    run_or_die "$make -f debian/rules install";
+    chdir "$conf->{dir}->{topdir}" || die "chdir $conf->{dir}->{topdir}: $!\n";
+}
+
+sub do_pack_dpkg () {
+    chdir "$conf->{dir}->{builddir}/$conf->{tardir}" || die "chdir $conf->{dir}->{builddir}/$conf->{tardir}: $!\n";
+    my $make = ($ENV{MAKE} || "make");
+    $make = $make->{content} if ref $make;
+    run_or_die "$make -f debian/rules package";
+    chdir "$conf->{dir}->{topdir}" || die "chdir $conf->{dir}->{topdir}: $!\n";
+}
+
+sub do_use_dpkg () {
+#    return unless ($use);
+#    my $dirname = basename getcwd();
+#    run_or_die "dpkg -i " . ($args{instdir} ? "--root=$args{instdir} " : "") . get_dir ("archivedir") . "/$dirname.deb";
+}
+
+sub check_conf_dpkg () {
+    my $build_conf = $conf->{build}->{default};
+    my $pack_conf = $build_conf->{package}->{default};
+    my @packages = keys %{$build_conf->{package}};
+
+    die "dpkg backend: no srcname specified for source package\n"
+	unless ($conf->{srcname});
+    die "dpkg backend: no priority specified\n"
+	unless ($conf->{psdata}->{priority});
+    die "dpkg backend: no section specified for source package\n"
+	unless ($conf->{psdata}->{section});
+
+    die "dpkg backend: license psdata not supported\n"
+	if ($conf->{psdata}->{license});
+
+    foreach my $package (@packages) {
+	my $pack_conf = $build_conf->{package}->{$package};
+	next unless keys %$pack_conf;
+
+	die "dpkg backend: no section specified for package $package\n"
+	    unless ($pack_conf->{psdata}->{section});
+	die "dpkg backend: no architecture specified for package $package\n"
+	    unless ($pack_conf->{psdata}->{architecture});
+    }
+
+}
+
+sub full_version_dpkg {
+    my ($conf) = @_;
+    return "$conf->{epoch}:$conf->{version}-$conf->{revision}" if (defined $conf->{epoch});
+    return "$conf->{version}-$conf->{revision}";
+}
+
+
+########################################################################
+#
+# Begin SD-specific handlers
+#
+
+# SD is the HP/UX Software Distributor system.  It's pretty simple; it
+# doesn't want to have anything to do with the build process, and
+# packages are created using a single file, called a Product
+# Specification File (PSF).  Docs on SD are available in from the
+# sd(4) manpage under recent versions of HP/UX, or from
+# <URL:http://software.hp.com/products/SD_AT_HP/>.  It doesn't have a
+# notion of "source packages", so we just create a fileset that
+# happens to contain the relevant source tree.
+
+# The main problem here is that normally, once a package ("product")
+# is installed to a distribution area ("depot"), it's hard to split it
+# out again - they're not just self-contained files like DEBs or RPMs.
+# According to HP, the supported way of dealing with this is to create
+# a separate mini-tape-depot (-x media_type=tape) for each package;
+# they end up being tarfiles of depots, but the SD tools recognize
+# them as a valid format.  The gotcha here is that swpackage won't
+# compress files when writing to a tarfile.  We work around it by
+# installing to an on-disk depot (compressed) and then using a second
+# invocation of swpackage to make a tarfile from the first depot.
+
+# Don't bother with do_{prepare,clean,build,install}_sd; they're the
+# same as the no-package versions.
+
+sub do_dist_sd () {
+    my $build_conf = $conf;
+    my $pack_conf = $build_conf->{package}->{default};
+    my @packages = keys %{$build_conf->{package}};
+    my $name = ($build_conf->{name} || $conf->{name});
+
+    open(PSF, ">$conf->{name}.preglob.psf")
+	or die "Error writing $conf->{name}.psf: $!\n";
+
+    report (2, "$progname: Writing PSF header...");
+    print PSF <<EOF;
+# HP/UX PSF file for @{[macro_replace ($conf->{srcname})]} module
+# Generated @{[scalar gmtime]} GMT by Ximian build system
+# $rcsid
+# from $conf->{rcsid}
+
+vendor
+	tag	ximian
+	title	Ximian, Inc.
+	description	"Ximian, Inc. <www.ximian.com> provides free software desktop
+services based on the GNOME <www.gnome.org> environment for Unix-like
+operating systems."
+end
+
+vendor
+	tag	HP
+	title	Hewlett-Packard Company
+	description	"Hewlett-Packard Company"
+end
+
+product
+	tag		$name
+	vendor_tag	HP
+	revision	$conf->{version}.$conf->{revision}
+	machine_type	$build_conf->{psdata}->{machine_type}
+	architecture	macro_replace ("[[sd_architecture]]");
+	os_name		HP-UX
+	os_release	$build_conf->{psdata}->{os_release}
+	os_version	$build_conf->{psdata}->{os_version}
+	is_locatable	false
+	directory	/
+EOF
+
+    # Use the default package description as the product description.
+    # It'll be duplicated at the fileset level, but it's not really a
+    # big problem.
+
+    if ($pack_conf->{description}->{h}) {
+	report (2, " description");
+	$pack_conf->{description}->{h} =~ s/\"/\\\"/g;
+	print PSF "\ttitle\t\t$pack_conf->{description}->{h}\n";
+	if ($pack_conf->{description}->{p}) {
+	    my @para = @{$pack_conf->{description}->{p}};
+	    grep {s/\"/\\\"/g} @para;
+	    print PSF "\tdescription\t\"", join("\n\n", @para), "\"\n";
+	}
+    }
+
+    if ($conf->{psdata}->{copyright}) {
+	my $copyright;
+
+	# Hack: The contents of the <psdata id="copyright"> element
+	# can be either a filename under $args{srcdir}/build/text or literal
+	# text to be included in the PSF file.  This lets us use the
+	# same copyright tag that says "LGPL" under RPM to insert a
+	# quick description of the LGPL under SD.
+
+	report (2, " copyright");
+#	if (-s "$args{srcdir}/build/text/$conf->{psdata}->{copyright}") {
+#	    open (COPYRIGHT,
+#		  "$args{srcdir}/build/text/$conf->{psdata}->{copyright}")
+#		or die "Error opening $args{srcdir}/build/text/$conf->{psdata}->{copyright}: $!\n";
+#	    $copyright = join('', <COPYRIGHT>);
+#	    close COPYRIGHT;
+#	} else {
+	    $copyright = $conf->{psdata}->{copyright};
+#	}
+	$copyright =~ s/\"/\\\"/g;
+	$copyright = macro_replace($copyright);
+	print PSF "\tcopyright\t\"$copyright\"";
+    }
+
+    # Put the contents of the "docs" tag in the -NOTES fileset.
+    # For now, just install them all into
+    # [[prefix]]/share/doc/package.
+
+    report (2, " docs");
+    print PSF <<EOF;
+
+	fileset
+		tag		$build_conf->{psdata}->{fileset_prefix}-NOTES
+		title		Release notes for $name product
+		description	"This fileset contains the release notes for the $name product"
+		architecture	@{[macro_replace ("[[sd_architecture]]")]}
+		machine_type	$build_conf->{psdata}->{machine_type}
+		os_name		HP-UX
+		os_release	$build_conf->{psdata}->{os_release}
+		os_version	$build_conf->{psdata}->{os_version}
+		revision	$conf->{version}.$conf->{revision}
+		directory	./$conf->{dir}->{tmpinstdir}@{[macro_replace('[[prefix]]')]}/src/$name/$conf->{tardir} = @{[macro_replace('[[prefix]]')]}/share/doc/$name
+EOF
+
+    foreach (@{$pack_conf->{docs}->{i}}) {
+	print PSF "\t\tfile -m 644	" . macro_replace ($_) . "\n";
+    }
+    print PSF "\tend\n";
+
+    report (2, " sources");
+    print PSF <<EOF;
+
+	fileset
+		tag		$build_conf->{psdata}->{fileset_prefix}-SRC
+		title		Source code for $name product
+		description	"This fileset contains the source code for the $name product"
+		architecture	@{[macro_replace ("[[sd_architecture]]")]}
+		machine_type	$build_conf->{psdata}->{machine_type}
+		os_name		HP-UX
+		os_release	$build_conf->{psdata}->{os_release}
+		os_version	$build_conf->{psdata}->{os_version}
+		revision	$conf->{version}.$conf->{revision}
+		directory	./$conf->{dir}->{tmpinstdir}@{[macro_replace('[[prefix]]')]}/src = @{[macro_replace('[[prefix]]')]}/src
+		file		*
+EOF
+    report ({level=>2,nline=>1}, "... done.");
+
+    foreach my $package ('default', grep(!/^default$/, @packages)) {
+	$pack_conf = $build_conf->{package}->{$package};
+	next unless keys %$pack_conf;
+	$name = ($pack_conf->{name} || $package);
+
+	report (2, "$progname: Writing $name info: header");
+	print PSF <<EOF;
+
+	fileset
+		tag		$name
+		architecture	@{[macro_replace ("[[sd_architecture]]")]}
+		machine_type	$build_conf->{psdata}->{machine_type}
+		os_name		HP-UX
+		os_release	$build_conf->{psdata}->{os_release}
+		os_version	$build_conf->{psdata}->{os_version}
+		revision	$conf->{version}.$conf->{revision}
+EOF
+
+        if ($pack_conf->{description}->{h}) {
+	    report (2, ", description");
+	    $pack_conf->{description}->{h} =~ s/\"/\\\"/g;
+	    print PSF "\t\ttitle\t\t$pack_conf->{description}->{h}\n";
+	    my @para;
+	    if ($pack_conf->{description}->{p}) {
+		@para = @{$pack_conf->{description}->{p}};
+		grep {s/\"/\\\"/g} @para unless ($package eq 'default');
+	    } else {
+		@para = ($pack_conf->{description}->{h});
+	    }
+	    print PSF "\t\tdescription\t\"", join("\n\n", @para), "\"\n";
+	}
+
+	# Write out the pacakge's dependency information, verbatim
+	# from build-buddy.conf.
+
+	foreach my $field(qw(prerequisites corequisites)) {
+	    if ($pack_conf->{dep}->{$field}) {
+		report (2, ", $field");
+		foreach (@{$pack_conf->{dep}->{$field}->{i}}) {
+		    print PSF "\t\t$field\t$_\n";
+		}
+	    }
+	}
+
+	# Write postinstall/postremove scripts to temporary files, and
+	# schedule them to be included in the PSF.
+
+	if ($pack_conf->{script}->{postinst} and $pack_conf->{script}->{postinst}->{i}) {
+	    report (2, ", postinst(directory");
+	    mkdirs "$conf->{dir}->{topdir}/scripts";
+	    report (2, ",script");
+	    open (POSTINST, ">$conf->{dir}->{topdir}/scripts/$pack_conf->{name}.postinst")
+		or die "Error opening scripts/$pack_conf->{name}.postinst: $!\n";
+	    print POSTINST <<EOF;
+#!/sbin/sh
+
+PATH=\${SWPATH}:/sbin:/usr/bin
+export PATH
+EOF
+
+	    foreach (@{$pack_conf->{script}->{postinst}->{i}}) {
+		my $entry = macro_replace($_);
+		chomp $entry;
+		print POSTINST "$entry\n";
+	    }
+	    print POSTINST "exit 0\n";
+	    close POSTINST;
+
+	    print PSF "\t\tpostinstall\t./scripts/$pack_conf->{name}.postinst\n";
+	    report (2, ",psf)");
+	}
+
+	if ($pack_conf->{script}->{postrm} and $pack_conf->{script}->{postrm}->{i}) {
+	    report (2, ", postrm(directory");
+	    mkdirs "$conf->{dir}->{topdir}/scripts";
+	    report (2, ",script");
+	    open (POSTRM, ">$conf->{dir}->{topdir}/scripts/$pack_conf->{name}.postrm")
+		or die "Error opening scripts/$pack_conf->{name}.postrm: $!\n";
+	    print POSTRM <<EOF;
+#!/sbin/sh
+
+PATH=\${SWPATH}:/sbin:/usr/bin
+export PATH
+EOF
+
+	    foreach (@{$pack_conf->{script}->{postrm}->{i}}) {
+		my $entry = macro_replace($_);
+		chomp $entry;
+		print POSTRM "$entry\n";
+	    }
+	    print POSTRM "exit 0\n";
+	    close POSTRM;
+
+	    print PSF "\t\tpostremove\t./scripts/$pack_conf->{name}.postrm\n";
+	    report (2, ",psf)");
+	}
+
+	if ($pack_conf->{script}->{configure} and $pack_conf->{script}->{configure}->{i}) {
+	    mkdirs "$conf->{dir}->{topdir}/scripts";
+	    open (CONFIGURE, ">$conf->{dir}->{topdir}/scripts/$pack_conf->{name}.configure")
+		or die "Error opening scripts/$pack_conf->{name}.configure: $!";
+	    print CONFIGURE <<EOF;
+#!/sbin/sh
+
+PATH=\${SWPATH}:/sbin:/usr/bin
+export PATH
+EOF
+
+	    foreach (@{$pack_conf->{script}->{configure}->{i}}) {
+		my $entry = macro_replace($_);
+		chomp $entry;
+		print CONFIGURE "$entry\n";
+	    }
+	    print CONFIGURE "exit 0\n";
+	    close CONFIGURE;
+
+	    print PSF "\tconfigure\t./scripts/$pack_conf->{name}.configure\n";
+	}
+
+	if ($pack_conf->{permissions}) {
+	    report (2, ", permissions");
+	    print PSF "\t\tfile_permissions $pack_conf->{permissions}\n";
+	}
+
+	if ($pack_conf->{files}->{i}) {
+	    report (2, ", files");
+	    print PSF "\t\tdirectory\t/\n";
+	    foreach (@{$pack_conf->{files}->{i}}) {
+
+		# SD doesn't do real glob expansion in file lists.
+		# We'll deal with globbing in the pack step.  This is
+		# gross, but since we can't know what files are there
+		# at this point, we have to defer the glob expansion
+		# until after do_install has run.
+
+		# if it starts with @ its an external filelist
+		if(m/^\@/) {
+		    s/^@//;
+		    open FILELIST, "$_";
+		    foreach (<FILELIST>) {
+			chomp;
+			$_ = macro_replace($_);
+		        s:^([^/%]):/$1:;
+			print PSF "\t\tfile\t\t$_\n";
+		    }
+		    # standard file list code (list enumerated in conf)
+		} else {
+		    $_ = macro_replace($_);
+		    s:^([^/%]):/$1:;
+		    print PSF "\t\tfile\t\t$_\n";
+		}
+	    }
+	}
+
+	# SD doesn't have the notion of "config files" the way rpm and
+	# dpkg do; just give them the same treatment as normal package
+	# files.
+
+	if ($pack_conf->{conffiles}->{i}) {
+	    report (2, ", conffiles");
+	    print PSF "\t\tdirectory\t/\n";
+	    foreach (@{$pack_conf->{conffiles}->{i}}) {
+		$_ = macro_replace($_);
+		s:^/::;
+		print PSF "\t\tfile\t\t$_\n";
+	    }
+	}
+	print PSF "\tend\n";
+	report ({level=>2,nline=>1}, "... done.");
+
+    }
+    print PSF "end\n";
+
+    close PSF;
+
+    report (2, "$progname: Writing canonical bb-ident.c...");
+    open IDENT, ">$conf->{dir}->{builddir}/$conf->{tardir}/bb-ident.c"
+	or die "Error writing $conf->{dir}->{builddir}/$conf->{tardir}/bb-ident.c: $!\n";
+    print IDENT <<EOF;
+/* bb-ident.c, generated by $progname from build-buddy.conf.  Contains
+   an SCCS ident string constructed at build time. */
+
+static const char sccs_ident1[] = "\@(#) $conf->{name} $conf->{version}, ximian.com revision $conf->{revision}";
+static const char sccs_ident2[] = "\@(#) built @{[scalar gmtime]} GMT from $conf->{rcsid} by $rcsid";
+EOF
+    close IDENT;
+    reportline (2, " done.");
+
+    report (2, "$progname: Writing canonical bb-ident-script...");
+    open IDENT, ">$conf->{dir}->{builddir}/$conf->{tardir}/bb-ident-script"
+       or die "Error writing $conf->{dir}->{builddir}/$conf->{tardir}/bb-ident-script: $!\n";
+    print IDENT <<EOF;
+# \@(#) built @{[scalar gmtime]} GMT from $conf->{rcsid} by $rcsid";
+# \@(#) $conf->{name} $conf->{version}, ximian.com revision $conf->{revision}
+EOF
+    close IDENT;
+    reportline (2, " done.");
+
+
+}
+
+sub do_source_sd () {
+    # SD doesn't have a notion of "source package".  What we do here
+    # is use the repository tools to create a tree which do_dist_sd
+    # can refer to and add to an automatically-generated -SRC fileset.
+    # We'll ship the unpacked source as we build it, but not the PSF
+    # for now, since it's not yet useful outside our environment.
+
+    my $build_conf = $conf->{build}->{default};
+    my $pack_conf = $build_conf->{package}->{default};
+    my $name = ($build_conf->{name} || $conf->{name});
+    my $prefix = macro_replace('[[prefix]]');
+
+    report (2, "$progname: Populating source fileset...");
+    run_or_die get_dir ("bb_exec") . "/bb_unpack -k -d $conf->{dir}->{tmpinstdir}$prefix/src/$name";
+    run_or_die "rm -f $conf->{dir}->{tmpinstdir}/src/$name/patched-to";
+    reportline (2, " done.");
+
+    report (2, "$progname: Writing redistributable bb-ident.c...");
+    open IDENT, ">$conf->{dir}->{tmpinstdir}$prefix/src/$name/$conf->{tardir}/bb-ident.c"
+	or die "Error writing $conf->{dir}->{tmpinstdir}$prefix/src/$name/$conf->{tardir}/bb-ident.c: $!\n";
+    print IDENT <<EOF;
+/* bb-ident.c, generated by $progname from build-buddy.conf.  Contains
+   an SCCS ident string constructed at build time. */
+
+static const char sccs_ident1[] = "\@(#) $conf->{name} $conf->{version}, revision $conf->{revision}";
+static const char sccs_ident2[] = "\@(#) REBUILT based on $conf->{rcsid}";
+EOF
+    close IDENT;
+    reportline (2, " done.");
+
+    # XXX shouldn't need to clobber permissions here, but it's better
+    # to be safe.
+    report (2, "$progname: Fixing permissions in source fileset...");
+    run_or_die "chmod -R a-s $conf->{dir}->{tmpinstdir}" . macro_replace('[[prefix]]') . "/src";
+    run_or_die "chown -R 0:0 $conf->{dir}->{tmpinstdir}" . macro_replace('[[prefix]]') . "/src";
+    reportline (2, " done.");
+
+    report (2, "$progname: Writing canonical bb-ident-script...");
+    open IDENT, ">$conf->{dir}->{builddir}/$conf->{tardir}/bb-ident-script"
+	or die "Error writing $conf->{dir}->{builddir}/$conf->{tardir}/bb-ident-script: $!\n";
+    print IDENT <<EOF;
+# \@(#) built @{[scalar gmtime]} GMT from $conf->{rcsid} by $rcsid";
+# \@(#) $conf->{name} $conf->{version}, ximian.com revision $conf->{revision}
+EOF
+    close IDENT;
+    reportline (2, " done.");
+
+
+}
+
+# Change the permissions of all files as per the os.conf defaults and
+# the build-buddy.conf settings for specific files/globs.  This tries
+# to be slow-but-correct (and easier to read) by changing
+# ownership/mode twice if there's an override.  Feel free to optimize
+# it if this bothers you ;-)
+
+sub set_perms {
+    my ($uid, $gid, $mode, @files) = @_;
+    chown $uid, $gid, @files;
+    chmod oct($mode), @files if ($mode);
+}
+
+sub link_set_perms {
+    my ($uid, $gid, @files) = @_;
+    $uid = "" if ($uid == -1);
+    $gid = "" if ($gid == -1);
+    run_cmd ("chown $uid:$gid $_") foreach (@files);
+}
+
+sub get_id_from_nam {
+    my ($owner, $group) = @_;
+
+    my $uid = ($owner ? (getpwnam ($owner))[2] : -1);
+    my $gid = ($group ? (getgrnam ($group))[2] : -1);
+
+    die "Error getting uid for user $owner.\n" unless (defined ($uid));
+    die "Error getting gid for group $group.\n" unless (defined ($gid));
+
+    return ($uid, $gid);
+}
+
+sub set_default_perms {
+    my @files = @_;
+
+    my $fperms = (macro_replace ("[[file_perms]]") || undef);
+    my $dperms = (macro_replace ("[[dir_perms]]") || undef);
+
+    my ($fowner, $fgroup) = get_id_from_nam (macro_replace ("[[file_owner]]"),
+                                             macro_replace ("[[file_group]]"));
+    my ($downer, $dgroup) = get_id_from_nam (macro_replace ("[[dir_owner]]"),
+                                             macro_replace ("[[dir_group]]"));
+
+    foreach (@files) {
+	link_set_perms ($fowner, $fgroup, $_) if (-l);
+	set_perms ($fowner, $fgroup, $fperms, $_) if (-f);
+	set_perms ($downer, $dgroup, $dperms, $_) if (-d);
+    }
+}
+
+sub get_perms_info {
+    my $perms = shift;
+    my $mode = ($perms->{mode} || undef);
+    my ($uid, $gid) = get_id_from_nam ($perms->{owner}, $perms->{group});
+
+    my $str = "owner: $perms->{owner} (uid $uid) " if (defined ($uid));
+    $str .= "group: $perms->{group} (gid $gid) " if (defined ($gid));
+    $str .= "mode: $perms->{mode}" if (defined ($mode));
+
+    return ($uid, $gid, $mode, $str);
+}
+
+sub override_perms {
+    foreach my $perms (@{$conf->{permissions}}) {
+	my ($uid, $gid, $mode, $str) = get_perms_info ($perms);
+	reportline (2, "$progname: Changing perms to $str for:");
+
+	foreach my $glob (@{$perms->{i}}) {
+	    reportline (2, "$glob");
+
+	    my @files = glob macro_replace ("$conf->{dir}->{tmpinstdir}$glob");
+	    set_perms ($uid, $gid, $mode, @files);
+	    $files[$_] =~ s/\Q$conf->{dir}->{tmpinstdir}\E// for (0 .. $#files);
+	    set_perms ($uid, $gid, $mode, @files);
+	}
+    }
+}
+
+sub do_install_sd () {
+    local $ENV{DESTDIR} = $conf->{dir}->{tmpinstdir};
+    chdir $conf->{dir}->{builddir} || die "chdir $conf->{dir}->{builddir}: $!\n";
+    run_or_die macro_replace($conf->{install});
+    chdir $conf->{dir}->{topdir} || die "chdir $conf->{dir}->{topdir}: $!\n";
+
+    # XXX HP wants executables and libraries to be mode 0555.  Even if
+    # we did change the umask, most Makefiles don't honor it.  This
+    # will be unhappy if we run across anything with the x bit set
+    # which should not be mode 0555.  Eit.
+
+    # This needs to go and be replaced with the generalized system
+    # below (set_default_perms () and override_perms ()).
+
+    report (2, "$progname: Fixing binary and library permissions...");
+    find (sub { return unless -f;
+		my $mode = (stat(_))[2];
+		chmod $mode & ~0222, $_
+ 		    if $mode & 0111 and $mode & 0222;
+		$_ = "$File::Find::dir/$_";
+		$_ =~ s/\Q$conf->{dir}->{tmpinstdir}\E//;
+		chmod $mode & ~0222, $_
+ 		    if $mode & 0111 and $mode & 0222;
+	    },
+	  $conf->{dir}->{tmpinstdir});
+    reportline (2, " done.");
+
+    # Set permissions for all files.  This is partly due to HP wanting
+    # every file to be owned by bin:bin.  This generalized system for
+    # permissions makes it possible to entirely bypass the permissions
+    # set by the module's Makefiles.  Yes, it's evil.  Bite me.
+
+    report (2, "$progname: Fixing default permissions and ownership...");
+    my @all_files = ();
+    find (sub { return unless (-f or -d);
+ 		$_ = "$File::Find::dir/$_";
+		push @all_files, $_ },
+	  $conf->{dir}->{tmpinstdir});
+
+    set_default_perms (@all_files);
+    $all_files[$_] =~ s/\Q$conf->{dir}->{tmpinstdir}\E// for (0 .. $#all_files);
+    set_default_perms (@all_files);
+
+    reportline (2, " done.");
+
+    # for the <permissions> section in build-buddy.conf:
+    override_perms ();
+
+    report (2, "$progname: Writing canonical bb-ident-script...");
+    open IDENT, ">$conf->{dir}->{builddir}/$conf->{tardir}/bb-ident-script"
+	or die "Error writing $conf->{dir}->{builddir}/$conf->{tardir}/bb-ident-script: $!\n";
+    print IDENT <<EOF;
+# \@(#) built @{[scalar gmtime]} GMT from $conf->{rcsid} by $rcsid";
+# \@(#) $conf->{name} $conf->{version}, ximian.com revision $conf->{revision}
+EOF
+    close IDENT;
+    reportline (2, " done.");
+}
+
+sub do_pack_sd () {
+    my $build_conf = $conf->{build}->{default};
+    my $name = ($build_conf->{name} || $conf->{name});
+
+    # Go back, read the PSF file, and do glob substitutions in the
+    # file lists.
+
+    report (2, "$progname: Expanding globs in PSF file...");
+    open (PSFI, "$conf->{name}.preglob.psf")
+	or die "Error opening $conf->{name}.preglob.psf: $!\n";
+    open (PSFO, ">$conf->{name}.psf")
+	or die "Error opening $conf->{name}.psf: $!\n";
+    chdir $conf->{dir}->{tmpinstdir}
+	or die "chdir $conf->{dir}->{tmpinstdir}: $!\n";
+
+    while (<PSFI>) {
+	unless (/^(\s*file\s+((-[tmuog]\s+\S+|-v)\s+)*)(\S+)/ and $4 ne '*') {
+	    print PSFO;
+	    next;
+	}
+
+	# XXX We should eventually be a bit more clever here about
+	# recursively including directories, so the file lists can
+	# look more like rpm/dpkg file lists.
+	(my $pref, my $fn) = ($1, $4);
+	$fn =~ s:^/::;
+	my @globfiles = glob "$conf->{dir}->{tmpinstdir}/${fn}";
+	die "glob failed: ${fn}\n" if (!@globfiles);
+	print PSFO map {s:^\Q$conf->{dir}->{tmpinstdir}/::; $pref . $_ . "\n"} @globfiles;
+    }
+
+    chdir $conf->{dir}->{topdir} or die "chdir $conf->{dir}->{topdir}: $!\n";
+    close PSFO;
+    close PSFI;
+    reportline (2, " done.");
+
+    # More grossity.  We want to write a standalone (tar-type) depot
+    # for each package to make it easier to distribute.  However,
+    # swpackage won't compress files when writing to a tar-type depot.
+    # So, we first package the product to an on-disk depot in
+    # $archivedir/sd_depot, removing the product if it's already there
+    # to ensure that said depot only contains the filesets we just
+    # made.  Then we call swpackage again to package the relevant
+    # product from the disk depot to a tape depot, which preserves the
+    # compression.
+
+    run_cmd "swlist -d $name \@ " . get_dir ("archivedir") . "/sd_depot >/dev/null 2>&1";
+    unless ($?) {
+	report (2,
+		"$progname: Removing old copy of $name from target disk depot...");
+	run_or_die "swremove -x enforce_dependencies=false -d $name \@ $conf->{dir}->{archivedir}/sd_depot";
+	reportline (2, " done.");
+    }
+    report (2, "$progname: Packing $name into target disk depot...");
+    run_or_die "swpackage -x compress_files=true -x compression_type=gzip " .
+	"-x compress_cmd=/usr/contrib/bin/gzip -x reinstall_files=true " .
+	"-s $conf->{name}.psf \@ $conf->{dir}->{archivedir}/sd_depot";
+    reportline (2, " done.");
+    report (2,
+	    "$progname: Repacking $name from disk depot to tar depot...");
+    run_or_die "swpackage -x media_type=tape -x reinstall_files=true ".
+	"-s $conf->{dir}->{archivedir}/sd_depot $name " .
+	"\@ $conf->{dir}->{archivedir}/$conf->{name}-$conf->{version}.$conf->{revision}.depot";
+    reportline (2, " done.");
+}
+
+sub do_use_sd () {
+}
+
+sub check_conf_sd () {
+    my $build_conf = $conf->{build}->{default};
+    my $pack_conf = $build_conf->{package}->{default};
+    my @packages = keys %{$build_conf->{package}};
+
+    die "sd backend: no name specified for the hpux product\n"
+	unless ($conf->{build}->{default}->{name});
+
+    die "sd backend: license psdata not supported\n"
+	if ($conf->{psdata}->{license});
+}
+
+sub full_version_sd {
+    my ($conf) = @_;
+#    return "$conf->{epoch}.$conf->{version}.$conf->{revision}" if (defined $conf->{epoch});
+    return "$conf->{version}.$conf->{revision}";
+}
+
+
+########################################################################
+#
+# Begin inst-specific handlers
+#
+
+# inst is the SGI IRIX software packaging system.  It's pretty simple;
+# it doesn't want to have anything to do with the build process, and
+# packages are created using two files, the spec file and the idb file.
+# Docs on these file formats are really only available under gendist(1M).
+#
+# And the docs aren't that useful.
+
+sub do_dist_inst () {
+    my $build_conf = $conf->{build}->{default};
+    my $pack_conf = $build_conf->{package}->{default};
+    my $product = $build_conf->{psdata}->{product};
+    my $product_id = $build_conf->{psdata}->{product_id};
+    my $name = ($build_conf->{name} || $conf->{name});
+    my $instversion = $conf->{psdata}->{inst_version};
+    my $full_instversion = $instversion . ($conf->{rev} ? $conf->{rev} : "00") .
+	($conf->{serial} ? $conf->{serial} : "0");
+    my @packages = keys %{$build_conf->{package}};
+
+    die "product name not defined for inst product!\n"
+	unless defined $product;
+    die "product id not defined for inst product!\n"
+	unless defined $product_id;
+    die "instversion psdata not defined for inst product!\n"
+	unless defined $instversion;
+
+    my %images;
+
+    # First figure out what images are referenced by each package
+    foreach my $pkg (@packages) {
+	my $imgname = $build_conf->{package}->{$pkg}->{psdata}->{image};
+	next if not defined $imgname;
+
+	my @aref;
+	my $aref = $images{$imgname};
+
+	if (defined $aref) {
+	    push @$aref, $pkg;
+	} else {
+	    push @aref, $pkg;
+	    $images{$imgname} = \@aref;
+	}
+
+#    print "'$pkg' '$imgname'\n";
+    }
+
+#  print "IMAGES: ", join (' ', keys %images), "\n";
+
+    open(SPEC, ">$conf->{name}.spec")
+	or die "Error writing $conf->{name}.spec: $!\n";
+
+print SPEC <<EOF;
+product $product
+	  id "$product_id"
+EOF
+
+    foreach my $img (keys %images) {
+
+print SPEC <<EOF;
+    image $img
+	id "$img packages"
+	version $full_instversion
+	order 9999
+EOF
+
+	foreach my $pkg (@{$images{$img}}) {
+	    my $expname = $product . "." . $pkg;
+	    $expname =~ s/[^a-zA-Z0-9_.]//g;
+
+# these are subsystems in inst-speak
+print SPEC <<EOF;
+	  subsys $build_conf->{package}->{$pkg}->{psdata}->{subsys}
+	      id "$build_conf->{package}->{$pkg}->{psdata}->{subsys_id}"
+	      replaces self
+	      exp $expname
+EOF
+
+	    my $pack_conf = $build_conf->{package}->{$pkg};
+	    if ($pack_conf->{dep}->{prereq}) {
+		print SPEC "		prereq ( ";
+		foreach (@{$pack_conf->{dep}->{prereq}->{i}}) {
+		    # We define a magic word Package-Version that expands out to the
+		    # $full_instversion of this package.
+		    s/Package-Version/$full_instversion/g;
+		    print SPEC "$_ ";
+		}
+		print SPEC " )\n";
+	    }
+
+	    print SPEC "	  endsubsys\n";
+	}
+
+	print SPEC "    endimage\n";
+    }
+
+    print SPEC "endproduct\n";
+    close SPEC;
+
+
+    # So, the problem we have here is that inst is even uglier than
+    # sd in this respect -- the idb file has a very expanded format
+    # (i.e. owner/group, permissions, whether something is a symlink,
+    # the link target, etc.) for .e.v.e.r.y.t.h.i.n.g.
+
+    open(IDB, ">$conf->{name}.preglob.idb")
+	or die "Error writing $conf->{name}.preglob.idb: $!\n";
+
+    foreach my $pkg (@packages) {
+	my $imgname = $build_conf->{package}->{$pkg}->{psdata}->{image};
+	next if not defined $imgname;
+
+	my $expname = $product . "." . $pkg;
+	$expname =~ s/[^a-zA-Z0-9_.]//g;
+
+	foreach my $fileentry (@{$build_conf->{package}->{$pkg}->{files}->{i}}) {
+	    print IDB "$expname " . substr (macro_replace($fileentry),1) . "\n";
+	}
+    }
+
+    close IDB;
+}
+
+# essentially the same as sd
+sub do_source_inst () {
+    my $build_conf = $conf->{build}->{default};
+    my $pack_conf = $build_conf->{package}->{default};
+    my $name = ($build_conf->{name} || $conf->{name});
+
+    run_or_die get_dir ("bb_exec") . "/bb_unpack -k -d $conf->{dir}->{tmpinstdir}" .
+	macro_replace('[[prefix]]') . "/src/$name";
+    run_or_die "rm -f $conf->{dir}->{tmpinstdir}" . macro_replace('[[prefix]]') . "/src/$name/patched-to";
+    # XXX shouldn't need to clobber permissions here, but it's better
+    # to be safe.
+    run_or_die "chmod -R a-s $conf->{dir}->{tmpinstdir}" . macro_replace('[[prefix]]') . "/src";
+    run_or_die "chown -R 0:0 $conf->{dir}->{tmpinstdir}" . macro_replace('[[prefix]]') . "/src";
+}
+
+sub do_pack_inst () {
+    my $build_conf = $conf->{build}->{default};
+    my $name = ($build_conf->{name} || $conf->{name});
+
+    # As with sd, go back, read the idb file, and flob subst in the lists.
+    # Note that the substs aren't straightforward. They have to be magic.
+
+    # the format of each idb line is:
+    # type perms owner group sourcedir targetdir packagename options
+
+    open (IDBI, "$conf->{name}.preglob.idb")
+	or die "Error opening $conf->{name}.preglob.idb: $!\n";
+    open (IDBO, ">$conf->{name}.idb")
+	or die "Error opening $conf->{name}.idb: $!\n";
+    chdir $conf->{dir}->{tmpinstdir}
+	or die "chdir $conf->{dir}->{tmpinstdir}: $!\n";
+
+    while (<IDBI>) {
+	chop;
+	(my $curpkg, my $curglob) = split / +/;
+        my @files;
+	if (-d $curglob) {
+	    # $curglob is a directory, so we take a different approach than just glob
+	    chop (@files = `find $curglob -print`);	  # I *heart* perl
+	} else {
+	    @files = glob($curglob);
+	}
+
+#    @files = magicglob($curglob);
+
+	unless (@files) {
+	    print STDERR "Warning: glob '$curglob' did not match any files\n";
+	    next;
+	}
+
+	foreach my $file (@files) {
+	    if (not defined $file) {
+		print STDERR "Warning: unknown undefined file?? (curglob: '$curglob')\n";
+		next;
+	    }
+
+	    (undef,undef,my $f_mode,undef,my $uid,my $gid,undef,undef,
+	     undef,undef,undef,undef,undef)
+		= stat($file);
+
+	    if (-l $file) {
+		my $linktarget = readlink($file);
+
+		printf IDBO "l %04o %s %s %s %s %s symval(%s)\n", $f_mode & 0xfff,
+		    scalar(getpwuid($uid)), scalar(getgrgid($gid)), $file, $file, $curpkg, $linktarget;
+	    } elsif (-d $file) {
+		printf IDBO "d %04o %s %s %s %s %s\n", $f_mode & 0xfff,
+		    scalar(getpwuid($uid)), scalar(getgrgid($gid)), $file, $file, $curpkg;
+	    } else {
+		printf IDBO "f %04o %s %s %s %s %s\n", $f_mode & 0xfff,
+		    scalar(getpwuid($uid)), scalar(getgrgid($gid)), $file, $file, $curpkg;
+	    }
+	}
+    }
+
+    close IDBO;
+    close IDBI;
+
+    chdir $conf->{dir}->{topdir} or die "chdir $conf->{dir}->{topdir}: $!\n";
+
+    # Now, the gendist man page states that the idb file must be sorted in a particular manner.
+    run_or_die "sort -u -k 5,7 < $conf->{name}.idb > idbtmp";
+    run_or_die "mv idbtmp $conf->{name}.idb";
+
+    # Now we system out to gendist
+    run_or_die "gendist -verbose -sbase $conf->{dir}->{tmpinstdir} -dist $conf->{dir}->{archivedir} -spec $conf->{name}.spec -idb $conf->{name}.idb";
+
+    # And we should be done.
+}
+
+sub full_version_inst {
+    my ($conf) = @_;
+    my $instversion = $conf->{psdata}->{inst_version};
+    die "No instversion supplied in conf file." unless $instversion;
+    return $instversion . ($conf->{rev} ? $conf->{rev} : "00") .
+	($conf->{serial} ? $conf->{serial} : "0");
+}
+
+
+__END__
+
+=pod
+
+=head1 NAME
+
+B<bb_do> - build (and package) a single module
+
+=head1 SYNPOSIS
+
+ bb_do [-nepIP] [-a archivedir] [-d distroroot] [-t target]
+       [-i instdir] [-b build-id] [-R revision] [-S serial] [-V version]
+       [-f conffile] [-v verbosity] [OPERATION ...]
+
+=head1 DESCRIPTION
+
+B<bb_do> is the core of build-buddy; it is responsible for building
+binary packages from single modules, and allows control of the build
+process while preserving reproducibility of the build.  Developers
+testing new changes use the same build tool as an automated system
+producing release-candidate packages.  As much as possible, B<bb_do>
+abstracts out the distribution's package system.  It is controlled by
+a per-module XML file, F<build-buddy.conf>, which contains
+information for building the module for all targets, and global per-OS
+and per-package-system XML files F<os.conf> and F<packsys.conf>,
+stored in build/conf in the helix-gnome CVS repository.  These files
+are shared with other parts of build-buddy, and their formats are
+documented in build/doc in helix-gnome CVS.
+
+B<bb_do> depends on having a checkout of the "build" module of the
+helix-gnome CVS repository, with the location specified at runtime
+(see L<"OPTIONS">).  It is intended to be run both by B<bb_build> and
+by hand.  It must be run from the top level of the module's directory
+(the cwd must contain F<build-buddy.conf>, source archives and patch
+files for B<rpm>-based distributions, and an unpacked src/ directory
+for non-B<rpm>-based distributions).
+
+=head1 OPTIONS
+
+=over 4
+
+=item -n
+
+noaction - print commands to stdout instead of executing them.  Not fully
+implemented.
+
+=item -p
+
+no-pack - don't build binary packages; just compile and install module
+software to I<$INSTDIR>.
+
+=item -e
+
+no-errors - don't exit on an error from a subcommand.
+
+=item --interactive
+
+Allow interactive I/O from subprograms (from Ximian::Run);
+
+=item -a I<archivedir>
+
+Place built package files in I<archivedir>.  Defaults to I<$BB_ARCHIVEDIR>,
+and then to I<$TMPDIR>/I<$USER>/built-packages.
+
+=item -s I<srcdir>
+
+Root directory for B<bb_do> to find configuration files, perl modules,
+and helper scripts.  This should be the top level of a helix-gnome CVS
+checkout, containing at least the "build" module.  Defaults to
+I<$SRCDIR>, and then to C</source>.
+
+=item -d I<distroroot>
+
+Directory where base distribution is installed.  B<bb_do> expects to
+find native system libraries here.  Defaults to I<$DISTROROOT>, and
+then to C</>.
+
+=item -t I<target>
+
+Build the current module for the specified I<target> tuple
+(e.g. C<redhat-70-i386>, C<solaris-27-sparc>).  Defaults $TARGET, and
+then to detecting the distribution installed at I<distroroot> and
+building appropriately.  NOTE: This option only affects choice of
+package system, and configure-time paths and variables.  This does not
+cause cross-compiling to happen, and it does not ensure that you have
+the necessary packaging tools installed.  For example, specifying
+S<C<-t debian-22-i386>> will probably fail on a Red Hat system, since
+the dpkg tools are not available.
+
+=item -i I<instdir>
+
+Specifies directory where software installed via S<C<bb_do -p install>>
+is installed.  Defaults to I<$INSTDIR>, and then to C</>.
+
+=item -b I<build-id>
+
+Specifies which B<build> of the current module to package.  Defaults
+to I<$BUILD_ID>, and then to C<default>.
+
+=item -R I<rev>
+
+Specifies upstream revision for the current module, overriding the
+contents of F<build-buddy.conf>.  May be set to an empty string to
+cause B<bb_do> to act as if E<lt>revE<gt> is unset.
+
+=item -S I<serial>
+
+Specifies local build serial number for the current module, overriding
+the contents of F<build-buddy.conf>.  May be set to an empty string to
+cause B<bb_do> to act as if E<lt>serialE<gt> is unset.
+
+=item -V I<version>
+
+Specifies upstream version string, overriding the contents of
+F<build-buddy.conf>.  Will not override F<build-buddy.conf> if set to
+an empty string.
+
+=item -f I<conffile>
+
+Specifies the XML module configuration file to use instead of
+F<build-buddy.conf> or the deprecated F<helix-build.conf>.  If this
+option is set to '-', B<bb_do> reads the configuration from the
+standard input.
+
+=item -v I<verbosity>
+
+Tells B<bb_do> how verbose to be when running.  This should be a
+numerical value from 0 (silent) to 6 (dumps internal parse trees and
+other debugging information).  Defaults to 2.
+
+=back
+
+=head1 OPERATIONS
+
+B<bb_do> allows the specification of zero or more whitespace-separated
+I<operations> on the command line.  If no operations are specified,
+B<bb_do> performs the C<all> operation.  Any number of operations may
+be specified, which will be performed by B<bb_do> in order.  C<all>
+may be combined with other operations on the command line
+(e.g. C<S<bb_do clean all>>).
+
+B<bb_do> recognizes the following operations:
+
+=over 4
+
+=item all
+
+Performs all operations below, in order.
+
+=item dist
+
+Does all preparatory work necessary for the package system backend to
+be able to complete the package compilation process.  This may include
+writing of configuration files for the native package system, so path
+options passed to B<bb_do> during this stage may persist in later
+operations.
+
+=item source
+
+Generates a source package from the archives and patches in the cwd
+(for B<rpm>-based distributions), or from the contents of src/ and the
+patches in the cwd (for B<dpkg>, B<sd>, and B<inst>-based
+distributions.
+
+=item prepare
+
+Performs all preparatory steps necessary to be able to compile the
+module (e.g. running B<configure>), using the E<lt>prepareE<gt> field
+of F<build-buddy.conf>.
+
+=item clean
+
+Attempts to return the build directory to as pristine a state as
+possible.  There are circumstances under which it may not work
+properly.
+
+=item build
+
+Compiles or otherwise create the files which will be included in the
+final package, using the E<lt>compileE<gt> field of
+F<build-buddy.conf>.
+
+=item install
+
+Install files to be packed into binary packages to I<$DESTDIR>,
+using the E<lt>installE<gt> field of F<build-buddy.conf>.
+
+=item pack
+
+Create binary packages in I<$BB_ARCHIVEDIR> from files in I<$DESTDIR>,
+possibly finalizing steps that should be in the B<dist> operation but
+which cannot be completed before the compilation happens (such as
+expanding globs in file lists).
+
+=back
+
+=head1 BACKEND SPECIFICS
+
+Due to the vagaries of the supported package systems, some specific
+information and configuration is required.
+
+=over 4
+
+=item rpm
+
+The current RPM is incompletely documented.  Some sketchy information
+can be found at E<lt>URL:http://www.rpm.org/E<gt>, and the hardcopy book
+I<Maximum RPM> (Edward C. Bailey, Redhat Press, 1997), while
+containing extensive information, is two major RPM revisions out of
+date.  An online version is available at
+<URL:http://www.rpmdp.org/rpmbook/>, which may or not be more up to
+date.  There are also some online errata for the book available
+through rpm.org.
+
+Due to the architecture of rpm, the F<src/> working directory is
+B<not> used for builds, unlike dpkg and sd.  Changes made to F<src/>
+will not be reflected in compiled packages until the changes are
+rolled into a patch using B<bb_regenerate> and the patch added to the
+E<lt>patchE<gt> list in F<build-buddy.conf>.
+
+The following E<lt>depE<gt> types are understood; their semantics
+are identical to the RPM tags of the same name:
+
+=over 4
+
+=item requires
+
+=item provides
+
+=item obsoletes
+
+=item prereq
+
+=back
+
+The following E<lt>psdataE<gt> entities must be defined for all
+modules and packages:
+
+=over 4
+
+=item copyright
+
+(under E<lt>archE<gt>) One-word description of the license of the
+source module.  Usually "GPL" or "LGPL".
+
+=item group
+
+(under E<lt>packageE<gt>) RPM group for the described package
+(e.g. "System Environment/Libraries").
+
+=back
+
+The following E<lt>psdataE<gt> entities may be defined if applicable:
+
+=over 4
+
+=item url
+
+(under E<lt>archE<gt>) URL of the software's homepage.
+
+=back
+
+=item dpkg
+
+Information on the Debian packaging system can be found in the Debian
+Packaging Manual - install the "packaging-manual" package and look in
+F</usr/share/doc/packaging-manual/>.
+
+The B<dpkg> backend does not currently generate every necessary file
+in the source tree's F<debian/> directory (in particular,
+F<debian/changelog> is missing).  B<bb_do> currently copies the
+contents of F<deb/> to the working source tree's
+F<debian/> directory as the last part of the S<C<bb_do dist>> step.
+Module maintainers must thus make sure to keep the contents of
+F<deb/> in sync with F<build-buddy.conf> until this can be
+fixed.  This allows module authors to overwrite the generated files in
+the module's debian/ directory, and should be used with care, as bb_do
+makes assumptions about the contents of the files it generates.
+
+The following E<lt>depE<gt> types are understood, with semantics
+identical to the F<debian/control> directives of the same name:
+
+=over 4
+
+=item depends
+
+=item pre-depends
+
+=item suggests
+
+=item recommends
+
+=item conflicts
+
+=item provides
+
+=item replaces
+
+=back
+
+The following E<lt>psdataE<gt> entities must be defined for all
+modules and packages:
+
+=over 4
+
+=item section
+
+(under E<lt>archE<gt> B<and> under E<lt>packageE<gt>) The dpkg/apt
+section for the binary packages (under E<lt>packageE<gt>) and the
+source package (under E<lt>archE<gt>), e.g. "libs", "devel".
+
+=item priority
+
+(under E<lt>archE<gt>) The dpkg/apt priority for the packages.
+Usually "optional".
+
+=item architecture
+
+(under E<lt>packageE<gt>) The supported architectures for the package.
+Usually "all" (build for all arches) or "any" (package is
+architecture-independent).
+
+=back
+
+=item sd
+
+Documentation on SD is available at
+E<lt>URL:http://software.hp.com/products/SD_AT_HP/E<gt> and in the
+B<swpackage(4)> manpage under HP-UX.
+
+B<fakeroot> does not currently work under HP-UX.  Thus, builds must be
+performed as root.
+
+The following E<lt>depE<gt> types are understood, with identical
+semantics to the PSF directives of the same name (see
+B<swpackage(4)>):
+
+=over 4
+
+=item prerequisites
+
+=item corequisites
+
+=back
+
+The following E<lt>psdataE<gt> entities must be defined for all
+packages:
+
+=over 4
+
+=item machine_type
+
+(under E<lt>buildE<gt> and E<lt>packageE<lt>)  Sets the PSF
+B<machine_type> field.  Usually '*' for architecture-independent
+packages or '*:32' for architecture-specific 32-bit libraries.
+
+=item os_release
+
+(under E<lt>buildE<gt>)  Sets the PSF B<os_release> field.  Usually
+'?.11.*', corresponding to all versions of HP-UX 11.
+
+=item os_version
+
+(under E<lt>buildE<gt>)  Sets the PSF B<os_version> field.  Usually
+'*'.
+
+=item fileset_prefix
+
+(under E<lt>buildE<gt>) Sets the prefix for filesets that B<bb_do>
+creates (such as the SRC and NOTES filesets - a value of 'FOO' here
+would create a FOO-SRC fileset, for example).  This should be
+consistent with the E<lt>nameE<gt> entries of the various
+E<lt>packageE<gt>s.
+
+=back
+
+The following E<lt>psdataE<gt> entities may be defined:
+
+=over 4
+
+=item copyright
+
+(under E<lt>archE<gt>)  Name of a file in CVS under build/text which
+contains the text of the module's copyright.  If the file does not
+exist, the text of the tag is included verbatim.  The files are
+usually named so as to be consistent with the names used by the RPM
+backend, such that RPM and SD can share a single E<lt>psdata
+id="copyright"E<gt> tag.
+
+=back
+
+=item inst
+
+B<fakeroot> does not currently work under Irix.  Thus, builds must be
+performed as root.
+
+=back
+
+=head1 ENVIRONMENT VARIABLES
+
+Most command-line switches can also be specified via environment
+variables, as documented in L<"OPTIONS">.  In addition, B<bb_do>
+recognizes the following environment variables:
+
+=over 4
+
+=item TMPINSTDIR
+
+Specifies the directory used by package system backend as a temporary
+I<DESTDIR> for installation of binaries in preparation to packaging.
+Defaults to the value specified in F<packsys.conf> for the relevant
+package system.
+
+=item BB_OVERRIDE_ROOT_TEST
+
+If building as a non-root user, do not attempt to run B<fakeroot>.
+Use with care, as this will probably cause less-than-useful packages
+to be created.
+
+=item BB_UNSTRIPPED
+
+If set, do not strip binaries before packaging them. This works with
+both the rpm and dpkg backends.  See also the "unstripped" tag in
+build-buddy.conf, and the --unstripped command-line flag.
+
+=back
+
+=head1 AUTHORS
+
+Original code by Mike Whitson <mike@ximian.com>.
+
+Contributions by Peter Teichman <peter@ximian.com>, Jacob Berkman
+<jacob@ximian.com>, Dave Camp <dave@ximian.com>, Frank Belew
+<frb@ximian.com>, Vladimir Vukicevic <vladimir@ximian.com>,
+and Dan Mills <thunder@ximian.com>
+
+=head1 COPYRIGHT
+
+Copyright 2000-2001 Ximian, Inc. <distribution@ximian.com>.  All
+rights reserved.
+
+=cut

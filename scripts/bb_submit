@@ -1,0 +1,115 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+=head1 NAME
+
+bb_submit - Submits a file to the repoman.
+
+=head1 SYNOPSIS
+
+bb_submit [-p [-d repodir] [-u repouser]] I<file>
+
+=head1 DESCRIPTION
+
+bb_submit imports I<file> into the Ximian Source Repository (repoman).
+After the file has been submitted, the newly created repository handle
+is printed on the screen.
+
+=head1 OPTIONS
+
+B<-p> - Enable personal repository. If this option is not specified, bb_get
+will ignore BB_REPO* and use rsync from 'repo::repo'.
+
+B<-d> I<repodir> - Specify the location of the repoman.  If this
+option is not specified, bb_get will look at the BB_REPODIR
+environment variable, and if that cannot be found, $HOME/repository
+will be used.
+
+B<-u> I<user@host> - If the repouser option is given, bb_get will use
+ssh to retrieve from the repository.  If this option is not specified,
+BB_REPOUSER will be checked, otherwise ssh will not be invoked.
+
+=head1 AUTHOR
+
+Peter Teichman <peter@ximian.com>
+Frank Belew <frb@ximian.com>
+
+=head1 COPYRIGHT
+
+       Copyright 2000-2001 Ximian, Inc.
+       <distribution@ximian.com>.  All rights reserved.
+
+=cut 
+
+use strict 'vars';
+
+use File::Basename;
+
+my $repodir = "$ENV{'HOME'}/repository";
+my $repouser = '';
+
+use FindBin;
+
+use Getopt::Std;
+my %opts;
+getopts('hpd:u:', \%opts);
+
+$ENV{'BB_REPODIR'} = $repodir = ($opts{'d'} || $ENV{'BB_REPODIR'} || $repodir);
+$ENV{'BB_REPOUSER'} = $repouser = ($opts{'u'} || $ENV{'BB_REPOUSER'} || $repouser);
+
+sub usage {
+    print STDERR "usage: bb_submit [-p [-d repodir] [-u user\@host]] filename\n";
+    exit 1;
+}
+
+usage if ($opts{'h'});
+
+my $file = (shift || '');
+usage if (not -f $file);
+
+my ($filename, $path) = fileparse($file);
+
+if (not open INFILE, $file) {
+    print STDERR "bb_submit: could not open file $file for reading\n";
+    exit 1;
+}
+
+my $command;
+
+if ($opts{'p'} || $ENV{'BB_REPOPORT'}) {
+    if ($repouser) { 
+	my $misc_ssh_args = $ENV{'BB_REPOPORT'}?
+	    " -p$ENV{'BB_REPOPORT'}" : "";
+        $command = "ssh $misc_ssh_args $repouser " .
+	    "$repodir/repository/bb_server_submit -p -d $repodir $filename";
+    } else {
+        $command = "$FindBin::RealBin/bb_server_submit $filename";
+    }
+} elsif ($repodir eq "repo::repo") {
+   $command = "$FindBin::RealBin/bb_server_submit -d /repo $filename";
+} else {
+   $command = "$FindBin::RealBin/bb_server_submit -d $repodir $filename"
+}
+
+if (not open OUTFILE, "|$command") {
+    print STDERR "bb_submit: could not open pipe to $command\n";
+    exit 1;
+}
+
+print OUTFILE <INFILE>;
+close INFILE;
+close OUTFILE;

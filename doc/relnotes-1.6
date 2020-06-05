@@ -1,0 +1,303 @@
+Build Buddy
+Version 1.6 Release Notes
+
+
+Contents
+--------
+
+1. Platform support
+2. Overview of new features in Build Buddy 1.6
+3. Installing Build Buddy
+4. Upgrading an existing installation
+5. Known issues
+6. Feedback and bug reports
+
+
+1. Platform support
+   ----------------
+
+* New build platforms in 1.6:
+
+Mandrake 10.0 / i586
+SUSE Linux 9.1 / x86_64
+SuSE Linux Enterprise Server 9 / x86_64
+SuSE Linux Enterprise Server 9 / ia64
+Novell Linux Desktop 9 / i586
+Additional RHEL / Fedora support.
+
+* Build platforms with build-daemon support:
+
+Mandrake Linux/i586: 9.1, 9.2
+Red Hat Linux/i386: 7.2, 7.3, 8.0, 9
+Red Hat Enterprise Linux/i386: 2.1AS
+SuSE Linux Desktop/i586: 1.0
+SuSE Linux Enterprise Server/i386: 8
+SuSE Linux/i586: 8.2, 9.0
+
+* Additional platforms, manual builds only:
+
+Debian GNU/Linux/i386: potato, woody
+HP/UX: 11.0, 11i (+++)
+Mandrake Linux/i586: 8.1, 8.2, 9.0
+Red Hat Linux/i386: 6.2, 7.1
+Red Hat Enterprise Linux/i386: 3AS (+)
+Solaris/sparc: 7, 8 (+++) (++++)
+SuSE Linux Enterprise Client/i586: 1
+SuSE Linux Enterprise Server/i586: 9 (+)
+SuSE Linux/i386: 7.3, 8.0, 8.1
+
+* Node platforms (++):
+
+Mandrake Linux/i586: 9.1, 9.2
+Red Hat Linux/i386: 7.3, 8.0, 9
+Red Hat Linux Enterprise Linux/i386: 2.1AS
+
+* Master platforms (++):
+
+Red Hat Linux/i386: 7.3
+
+(+) Will get build-daemon support, pending Red Carpet 2.x releases on
+    those platforms.
+(++) SuSE node and master packages are in the works at the moment.
+(+++) No jail support.
+(++++) RPM only.
+
+
+2. Overview of new features in Build Buddy 1.6
+   -------------------------------------------
+
+* Web UI cleanup
+
+The Web UI now has a new look, and some content changes as well.
+
+The job creation page has the ability to move modules to the
+top/bottom of the build order in one click. In order to keep the
+module commands to the right of each module short, they have been
+abbreviated as well.  Their meanings are:
+
+^: Move up
+v: Move down
+T: Move to the top
+B: Move to the bottom
+x: Delete
+
+The job creation page's "edit" link to edit the global job settings
+now displays a new page, instead of the in-line editing previously
+used.  The settings, however, are the same (except for new fields to
+access other new features in this release, such as mcookie/partnernet
+deployment, shared jobs, etc).  This page now has checkboxes to select
+the build targets.  The checkboxes reflect the current available
+targets to build on.
+
+The node info page displays some additional information, such as the
+currently unpacked jails, their owner, and wether they are available
+for use or not.
+
+New users must provide an email field.  This email is used to report
+snapshot status to the job owner.
+
+* Snapshot reports
+
+Snapshots now generate email reports *with job results*, if the
+"email" logstyle for bb_snapshot is used.
+
+Also, if the "rss" logstyle is used, an RSS feed can be generated,
+which can be viewed with any RSS reader.  However, if the Build Buddy
+server is behind a firewall, the RSS reader will need to be behind the
+firewall as well.  Therefore, readers such as Bloglines will not work
+with our internal server.
+
+Multiple logstyles can now be used, by separating them with commas.
+e.g., "bb_snapshot --logstyle email,rss".
+
+* partnernet/mcookie deployment
+
+partnernet and mcookie values can now be stored in the database and
+set for each job.  This allows RCD to be configured without the need
+to activate any keys.  In addition to speed, this means each new job
+does not use a new seat on the server.
+
+Do not share your mcookie or partnernet files, however.  If you do,
+and someone else activates an additional key with that mcookie, your
+jobs will suddenly "see" additional channels!
+
+The mcookie/partnernet changes are also available as jail metadata.
+At that level, the rcd.passwd and rcd.conf files can also be
+configured.  It is possible, then, to not set the mcookie/partnernet
+for each job, but to set it for each jail instead.  If both are set,
+the job's are used.  Note, also, that the job will set the
+mcookie/partnernet in the jail metadata.
+
+* Shared jobs
+
+Saved jobs can now be shared with other users.  These users will be
+able to see and edit all of the job's values.  To share a job with
+another user, load the saved job, go to "Shared Users", and write the
+BB login names of each user.
+
+* NFS riddance
+
+Build Buddy can now fully function without the need to use NFS.  There
+are several changes to be aware of:
+
+Logging:  Logs are now reported back to the bb_logger daemon running
+on the master, via XML-RPC.  The logger then writes the logs to disk,
+much in the same way that they used to be written before.
+
+Package/other files:  BB_ARCHIVEDIR (the place where packages and
+other files get placed) is now set to a jail-local directory (in
+/tmp).  Files get copied to the master throughout the build, via
+rsync.
+
+Repository access:  Since the repository is now remote, all jobs that
+wish to access is must also set (in addition to BB_REPODIR) the
+BB_REPOUSER variable.  This will cause BB to use bb_ssh to access the
+repository.
+
+* Multiple target submission
+
+It is now trivial to build on one target and submit on any other
+target(s).
+
+To do this, go to the new job page, click on [Edit], and scroll down
+to the "RC Submission" section.  Add the targets you wish to submit to
+in the "Submit Targets" setting, separating them with commas.
+
+Note that if you set Submit Targets and wish to submit to the current
+target you're building on, you must set it explicitly.  If left unset,
+it will default to the current target.
+
+Please ensure your packages will work on the other target(s).  BB will
+not perform any checks whatsoever to ensure that they will.  Usage of
+this feature is only recommended then for targets that are guaranteed
+to be binary compatible with each other.
+
+* Tarball creation
+
+Build Buddy can now create tarballs of the built packages.  Currently,
+it can only do this from RPM packages.  BB merely extracts the payload
+of the RPM package, so therefore the tarballs a) are laid out in the
+same manner as the packages (one tarball per RPM), and b) contain
+exactly the same files.
+
+To use this feature, simply enable the checkbox from the new job page,
+or if using bb_client, use the --create_tarballs option.
+
+* Build process changes
+
+The build script that runs for each job has seen some changes.  The
+most important one is that BB will now skip the build for any packages
+that are already installed in the jail at the same version that wuild
+be built.  This means that if a build fails, it can be resubmitted to
+use the same jail, and the build will continue about where it left off
+(the failed module will be rebuilt from scratch).
+
+The previous change is most useful when the newly added "Ignore
+Submission Errors" setting (a checkbox on the new job page) is
+enabled.  This causes the build to not fail, even if submission to red
+carpet fails for any module.  The reason why it's useful is because
+with the above change, it is more common that BB will attempt to
+submit a module that has already been submitted previously.
+
+Other changes are that on SUSE, the SuSEconfig program is run if Red
+Carpet was run (because current Red Carpet builds don't run it for
+us--future ones will), and also that BB attempts to build as the
+"distro" user, instead of root.
+
+* Script improvements
+
+Various BB scripts have been improved.  The most useful ones are:
+
+bb_do: macro_replace package names.
+bb_jail_meta: Can now list the available metadata stores, as well as
+              listing all the (simple) metadata in a store.
+bb_get: Use bb_scp instead of scp.
+bb_xmlgen: Add bz2 support.
+
+
+3. Installing Build Buddy
+   ----------------------
+
+(TODO)
+
+
+4. Upgrading an existing installation
+   ----------------------------------
+
+There is a new script called bb_schema_upgrade_1.6, to update an the
+database of an existing installation to 1.6.
+
+* Daemons
+
+The bb_node daemon no longer has the --jail_delete_threshold option,
+since it was cumbersome to use.  Instead, a simpler --maximum_jails
+option is now provided.  The default is 10 open jails.  This means
+that, whenever there are 10 or more open jails, BB will attempt to
+clean up any unused jails.
+
+Regardless of disk space, more than 10 jails is not recommended, as it
+makes job submission too slow.
+
+The bb_snapshot script is now the only snapshot script available.  The
+bb_snapshotter script was merged into it.  Moreover, the --longsleep
+option is now --loop, and it can be disabled with -1 (not 0).
+
+* Configuration
+
+The bb.conf file has been updated to include comments.  It also has
+two new sections for bb_snapshot settings, as well as RSS settings
+(for bb_snapshot's RSS logstyle).
+
+bb.conf also has new settings for the Mason component root, and a
+logger group that is used to set the gid that is used to write the
+logs.  This setting is less important now, though, because the logs no
+longer live on NFS.
+
+It is now possible to configure the web UI to run via CGI.  There is a
+sample Apache CGI handler and configuration file included in the web/
+directory of the BB sources.  They have been tested with Apache 2.
+
+The default locations for some things have changed.  For example, the
+Mason component root (generally the same as Apache's document root)
+now defaults to /srv/www/htdocs, and the outputdir (where logs and
+packages end up) defaults to /srv/build-daemon on the master.
+
+* Other
+
+For those who build and install BB by hand, or make their own
+packages, the Friend.make makefile supports three new environment
+variables: HTDOCSDIR, CGIDIR, and APACHE_CONFDIR.
+
+
+5. Known Issues
+   ------------
+
+There is not currently any way to change your email via the web UI.
+Please contact your Build Buddy administrator, it can be changed in
+the database manually.
+
+Because of a problem with our XML-RPC libraries, some logs may contain
+extra spaces.  Since the web UI displays logs in <pre> tags, they will
+not be wrapped.  Therefore, if a line appears missing, be sure to try
+to scroll to the right in case it was padded with spaces.
+
+The bb_client script cannot configure RCD activations.  The only
+workaround currently is to use the jail metadata to set mcookie and
+partnernet files, so that jails are pre-activated.
+
+The RSS feed generated by BB overwrites (instead of appending) the
+last RSS file.  This means that under some readers, only the latest
+snapshot will be visible.
+
+
+6. Feedback and bug reports
+   ------------------------
+
+Please direct any questions or bugs to our mailing lists, hosted by
+Novell Forge.
+
+The Build Buddy Homepage:
+http://build-buddy.org/
+
+Mailing Lists:
+http://forge.novell.com/modules/xfmod/maillist/?group_id=1349

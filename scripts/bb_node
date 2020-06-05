@@ -1,0 +1,386 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: bb_node 3080 2006-01-05 01:10:21Z v_thunder $
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||""); $My::bin = $My::bin;
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+use strict;
+
+use RPC::XML;
+use RPC::XML::Server;
+use Sys::Hostname;
+use Data::UUID;
+
+use Ximian::Run ':all';
+use Ximian::Util ':all';
+use Ximian::Sys ':all';
+use Ximian::BB;
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Macros ':all';
+use Ximian::BB::Target ':all';
+use Ximian::BB::Status ':all';
+
+########################################################################
+
+my %args;
+my $daemon;
+my $job;
+my %alljobs;
+
+# commandline in case we need to reexec ourselves
+my @reexec_cmd = (rel2abs ($0), @ARGV);
+
+########################################################################
+
+sub usage {
+    print STDERR <<EOF;
+usage: $My::bin [options]
+    options:
+	-h:	usage information
+	-d:	daemonize
+EOF
+    exit 1;
+}
+
+parse_args_set (\%args, "base");
+
+parse_args
+    (\%args,
+     [
+      {names => ["help", "h", "?", ""], run => \&usage},
+      {names => ["port",             "p"], type => "=i", default => 0},
+      {names => ["httpport",         "P"], type => "=i", default => 0},
+      {names => ["workdir",          "w"], type => "=s", default => "/tmp/bb_node"},
+      {names => ["pidfile"              ], type => "=s", default => ""},
+      {names => ["daemonize",        "d"], default => 0},
+      {names => ["sync",             "s"], default => 0},
+     ]);
+
+my $bbconf = get_bb_conf ();
+my $confdirs_ref = $bbconf->{dirs}->{config}->{i};
+@Ximian::BB::Globals::confdirs = macro_replace ($confdirs_ref, [$bbconf]);
+
+my ($packsys, $target) = $args{target}?
+    split (':', $args{target}) : detect_target ();
+$Ximian::BB::Globals::packsys = $packsys;
+$Ximian::BB::Globals::target = $target;
+
+my $osconf = get_os_conf ();
+
+$Ximian::BB::Globals::confs = [$osconf, $bbconf];
+
+$args{port} = ($args{port} || find_port (9000));
+$args{httpport} = ($args{httpport} || find_port ($args{port} + 1));
+reportline (3, "Node using port $args{port}");
+reportline (3, "File server using port $args{httpport}");
+
+########################################################################
+
+sub build_logging_cb {
+    my $context = shift;
+    my @lines = @_;
+
+    my $n = ($alljobs{$job}->{node_logid} || "0");
+    $n = sprintf "%03d", $n;
+    open LOG, ">>logs/$job/$n-bb_build-output";
+    print LOG "$_\n" foreach (@lines);
+    close LOG;
+
+    reportline (4, $_) foreach (@lines);
+
+    if ($context->{run_status}) {
+        $alljobs{$job}->{exit_status} = $context->{exit_status};
+        $job = undef;
+        status_pop;
+    }
+}
+
+########################################################################
+# Methods exported via XML-RPC
+
+sub build {
+    my $server = shift;
+    my ($project, $operation, $modules, $opts) = @_;
+
+    if ($job) {
+        my $msg = "Cannot start new job: already executing job \"$job\"";
+        reportline (1, $msg); die $msg;
+    }
+
+    unless (open PROJECT, ">project.conf") {
+        my $msg = "Could not open $args{workdir}/project.conf";
+        reportline (1, $msg); die $msg;
+    }
+    print PROJECT $project;
+    close PROJECT;
+
+    status_push ("working");
+
+    mkdirs "logs";
+    $job = next_logid "logs";
+    die "bb_node: Could not get next logid" unless $job >= 0;
+    $alljobs{$job} = {};
+
+    mkdirs "logs/$job";
+    my $n = next_logid "logs/$job";
+    die "bb_node: Could not get next logid" unless $n >= 0;
+    $alljobs{$job}->{node_logid} = $n;
+
+    my @cmd = ("bb_build", "--nolog_cleanup");
+    push @cmd, ("--archivedir", rel2abs ("built-packages"));
+    push @cmd, ("--src_archivedir", rel2abs ("built-packages/source"));
+    push @cmd, ("-B") if $opts->{backwards};
+    push @cmd, ("-L") if $opts->{do_left};
+    push @cmd, ("-C") if $opts->{do_center};
+    push @cmd, ("-R") if $opts->{do_right};
+    push @cmd, ("-e") if $opts->{use_existing};
+    push @cmd, ("-v", $opts->{verbosity}) if non_empty $opts->{verbosity};
+    push @cmd, ("-m", $opts->{start_at}) if non_empty $opts->{start_at};
+    push @cmd, ("--on_error", $opts->{on_error}) if non_empty $opts->{on_error};
+    push @cmd, ("-l", "logs/$job");
+    push @cmd, ("-o", $operation);
+    push @cmd, @$modules;
+
+    reportline (2, "Running in sync mode") if $args{sync};
+    reportline (2, "Running: @cmd");
+
+    my $pid = run_cmd_async ({sync => $args{sync}? 1 : 0,
+                              logging_cb => \&build_logging_cb}, @cmd);
+    unless ($pid) {
+        my $msg = "Error starting new job: Could not execute: @cmd";
+        reportline (1, $msg); die $msg;
+    }
+    $alljobs{$job} = {pid => $pid};
+
+    return $job;
+}
+
+sub status {
+    my $server = shift;
+    my ($j) = @_;
+    unless (exists $alljobs{$j}) {
+        my $msg = "status: Job \"$j\" does not belong to this node";
+        reportline (2, $msg); die $msg;
+    }
+    return "running" if $job and $j eq $job;
+    return "running" unless exists $alljobs{$j}->{exit_status};
+    return "failed" if $alljobs{$j}->{exit_status};
+    return "failed" unless exists $alljobs{$j}->{pid};
+    return "succeeded";
+}
+
+sub kill {
+    my $server = shift;
+    my ($j) = @_;
+
+    unless (exists $alljobs{$j}) {
+        my $msg = "Error: Job \"$j\" does not belong to this node";
+        reportline (1, $msg); die $msg;
+    }
+    if (exists $alljobs{$j}->{exit_status}) {
+        reportline (2, "Attempted to kill job $j, but it is already done");
+        return 1;
+    }
+    unless (exists $alljobs{$j}->{pid}) {
+        reportline (2, "Attempted to kill job $j, but it never successfully started");
+        return 1;
+    }
+
+    run_cmd ("kill $alljobs{j}->{pid}");
+    safe_sleep (3);
+    return 1 unless -d "/proc/$alljobs{j}->{pid}";
+
+    run_cmd ("kill -9 $alljobs{j}->{pid}");
+    safe_sleep (3);
+    return 1 unless -d "/proc/$alljobs{j}->{pid}";
+
+    return 0; # give up, return error
+}
+
+sub targets {
+    my $server = shift;
+    return [$Ximian::BB::Globals::target];
+}
+
+sub cleanup {
+    my $server = shift;
+    run_cmd ("rm -rf *");
+    return 1;
+}
+
+sub fileserver_port {
+    return $args{httpport};
+}
+
+sub shutdown {
+    my $server = shift;
+    exit 0;
+}
+
+sub restart {
+    my $server = shift;
+    my $child = fork;
+    if ($child) { # parent
+	exit 0;
+    } else {
+	safe_sleep 5; # let the parent die
+	exec @reexec_cmd;
+    }
+}
+
+sub version {
+    my $server = shift;
+    return Ximian::BB::VERSION;
+}
+
+sub ping {
+    my $server = shift;
+    return 1;
+}
+
+sub dumper {
+    my $server = shift;
+    require Data::Dumper;
+    print Data::Dumper::Dumper(\@_);
+    return 1;
+}
+
+########################################################################
+# XML-RPC Set-up
+
+my $srv = RPC::XML::Server->new (port => $args{port},
+				 timeout => 240); # be lenient
+
+# Note: The 'signature' is composed of the return type (the first
+# thing in the signature), and the rest are the expected arguments.
+
+$srv->add_method ({name => "build", code => \&build, signature => ["string string string array struct"]});
+$srv->add_method ({name => "status", code => \&status, signature => ["string int"]});
+$srv->add_method ({name => "kill", code => \&kill, signature => ["int int"]});
+$srv->add_method ({name => "targets", code => \&targets, signature => ["array"]});
+$srv->add_method ({name => "cleanup", code => \&cleanup, signature => ["int"]});
+$srv->add_method ({name => "fileserver_port", code => \&fileserver_port, signature => ["int"]});
+$srv->add_method ({name => "shutdown", code => \&shutdown, signature => [""]});
+$srv->add_method ({name => "restart", code => \&restart, signature => [""]});
+$srv->add_method ({name => "version", code => \&version, signature => ["string"]});
+$srv->add_method ({name => "ping", code => \&ping, signature => ["int"]});
+
+########################################################################
+# Main block
+
+die "You really should be running this as root.\n" if ($>);
+
+status_push ("listening");
+reportline (2, "Node ID: " . hostname . ":$args{port}");
+
+daemonize ("$args{workdir}/logs/bb_node") if ($args{daemonize});
+system ("echo \"$$\" >$args{pidfile}") if $args{pidfile};
+mkdirs $args{workdir};
+pushd $args{workdir};
+
+my $pid = fork ();
+if ($pid) {
+    $SIG{INT} = sub { system ("kill $pid"); exit 0 };
+    $SIG{PIPE} = "IGNORE"; # Ignore connection deaths
+    $srv->server_loop; # Never returns
+    exit 0;
+} else {
+    exec (get_dir ("bb_exec") . "/bb_node_http -p $args{httpport}");
+}
+
+# unreachable
+exit 1;
+
+=pod
+
+=head1 NAME
+
+B<bb_node> - build packages on-demand
+
+=head1 SYNPOSIS
+
+ bb_node
+
+=head1 DESCRIPTION
+
+B<bb_node> is a simple XML-RPC layer for build-buddy.  It runs inside
+a build jail as a daemon, and executes bb_build operations for a given
+project file on-demand.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --help (-h)
+
+Print some basic usage information.
+
+=item --port (-p) <port>
+
+Port number to run the daemon on.  Default is first open port after
+9000.
+
+=item --httpport (-P) <port>
+
+Port number to run the file server daemon on.  Default is first port
+open after the node daemon port.
+
+=item --workdir (-w) <directory>
+
+Directory where bb_node will do all its work.  Defaults to
+/tmp/bb_node.
+
+=item --pidfile <file>
+
+If given, a file to write the PID of the daemon to.
+
+=item --daemonize (-d)
+
+Background the process to run as a daemon.
+
+=item --sync (-s)
+
+Do not use asynchronous XML-RPC calls.
+
+=back
+
+=head1 AUTHORS
+
+Peter Teichman <peter@ximian.com>
+Dan Mills <thunder@ximian.com>
+
+=head1 COPYRIGHT
+
+Copyright 2000-2002 Ximian, Inc. <distribution@ximian.com>.  All
+rights reserved.
+
+=cut

@@ -1,0 +1,129 @@
+Build-Buddy Developer Tutorial
+==============================
+
+So you want to hack on Fjord, to add some of those excellent features
+you think it should have.  Only, you have no idea how to get the
+sources and all of the wonderful Ximian patches Fjord already has.  Or
+how to make a new patch that will make it into our packages.  Or how
+to make packages, for that matter.
+
+Fear not, for help is here.
+
+The first step is setting up the build system.  This is easily
+accomplished by running the following command (substitute "rpm" with
+"deb" if you are on a Debian system):
+
+rc install /nfs/users/thunder/build-system/rpm/base/*
+
+Once that is done, you should have all the bb utilities you'll need.
+Now to the next step:  getting the sources to the wonderful Fjord.  To
+do this, you'll need a file that the build system uses to describe
+each module.  It is called "ximian-build.conf", and it is a plain text
+xml file.  If Fjord ships with ximian-desktop, you will probably want
+to get it from cvs, like so:
+
+cvs -d "$USER@cvs.ximian.com:/cvs/helix-gnome" co ximian-desktop
+
+This will get you all the conf files for all the modules included with
+ximian-desktop.  You'll want to cd to the ximian-desktop/fjord
+directory, as the bb utilities look for the conf file in ".", and run
+the following commands:
+
+export BB_REPODIR=/nfs/release/source_repository
+bb_unpack
+
+Assuming this command succeeded, you will have several new files and
+directories:  a source tarball (Fjord-0.1.2.tar.gz), a Ximian patch
+(fjord-add-mountains.patch), and a "src" directory.
+
+Now is the time to do all your hacking.  Pull up your favorite editor,
+hack away in the src/ directory to your heart's content.  Once you are
+done and want to make a patch, go back to the module directory (the
+one that contains the ximian-build.conf file), and run:
+
+bb_regenerate fjord-fix-broken-waterfalls.patch
+
+This will do some Deep Magic, and come up with a new patch file
+(called "fjord-fix-broken-waterfalls.patch.new"), that contains all of
+your changes.
+
+Now that you've produced a patch, you'll want to add it to the
+packages, and run some tests.  We'll break this down into two steps:
+
+Step 1:  Edit ximian-build.conf
+
+Don't let it scare you, there's a lot of information in there, but all
+you need to find is the <patch> section.  It should look something
+like this:
+
+    <patch>
+        <i>fjord-add-mountains.patch-1</i>
+    </patch>
+
+You'll want to add one more <i></i> element in there, after the
+current patch.  It should look like this:
+
+    <patch>
+        <i>fjord-add-mountains.patch-1</i>
+        <i>fjord-fix-broken-waterfalls.patch-1</i>
+    </patch>
+
+Notice the "-1" at the end.  Just add it, don't ask why.  All will
+become clear later.
+
+Step 2:  Re-unpacking the sources, with your patch applied
+
+The following commands should get you there:
+
+# clean the module directory - notice this will blow away src/ !
+bb_unpack -c
+
+# copy your patch
+cp fjord-fix-broken-waterfalls.patch.new fjord-fix-broken-waterfalls.patch
+
+# unpack again, using the patch currently there (i.e., don't download
+# it again)
+bb_unpack -k
+
+At this point, you should have a cleanly unpacked src/ directory, with
+your new changes applied.  If all went well, you can proceed to build
+packages for it:
+
+bb_do
+
+That's it.  Assuming nothing broke, you will find packages in
+/tmp/$USER/built-packages/.  You can install them with rc (or rpm, or
+dpkg), and test them however you like.
+
+Finally, if the packages are up to your standards, you can submit the
+patch to the repository, and commit the ximian-build.conf, as follows:
+
+Submit the patch:
+
+bb_submit fjord-fix-broken-waterfalls.patch
+
+It should return something like: fjord-fix-broken-waterfalls.patch-1
+
+And commit to cvs:
+
+cvs commit ximian-build.conf
+
+Remember the "-1" you added?  It's a repository serial.  If you were
+to submit the same patch again, it would make -2, and so on.
+
+This is the end of this tutorial.  Here are a few pointers for further
+reading:
+
+* How to re-generate a patch that already exists:  perldoc bb_regenerate
+* How to schedule a build on the Ximian build nodes: perldoc bb_client
+* Learn more about BB in general:
+  https://synapse.ximian.com/build-buddy/build-buddy-overview.php3
+* The main BB documentation page:
+  https://synapse.ximian.com/build-buddy/
+* Submit a bug in BB:
+  https://chernobyl.ximian.com/enter_bug.cgi?product=Ximian%20Build%20System
+
+We hope this was helpful to you.  Please get in touch with us if you
+have any doubts or concerns.
+
+- The BB Team

@@ -1,0 +1,23 @@
+<!ELEMENT conf (os+)>
+
+<!ELEMENT os (osvers+)>
+<!ATTLIST os		id	CDATA #REQUIRED>
+
+<!ELEMENT osvers (arch+)>
+<!ATTLIST osvers	id	CDATA #REQUIRED>
+
+<!ELEMENT arch (packsys?,description?,macro*,path*,data*)>
+<!ATTLIST arch		id	CDATA #REQUIRED>
+
+<!ELEMENT packsys (#PCDATA)>
+
+<!ELEMENT description (#PCDATA)>
+
+<!ELEMENT macro (#PCDATA)>
+<!ATTLIST macro		id	CDATA #REQUIRED>
+
+<!ELEMENT path (#PCDATA)>
+<!ATTLIST path		id	CDATA #REQUIRED>
+
+<!ELEMENT data (#PCDATA)>
+<!ATTLIST data		id	CDATA #REQUIRED>

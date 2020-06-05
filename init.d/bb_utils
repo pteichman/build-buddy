@@ -1,0 +1,142 @@
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# Author: Dan Mills <thunder@ximian.com>
+# Created: Fall 2002
+
+# A set of helper functions for creating cross-platform init scripts
+
+########################################################################
+# Distro detection
+
+if [ -x /sbin/start-stop-daemon ]; then
+        DISTRO=debian
+elif [ -f /etc/init.d/functions ]; then
+	. /etc/init.d/functions
+	DISTRO=rhl
+else
+	DISTRO=unknown
+fi
+
+########################################################################
+# Per distribution start / stop functions
+
+start_daemon_rhl() {
+    DAEMON=$1; shift
+    NAME=`basename $DAEMON`
+
+    echo -n $"Starting $NAME services: "
+    daemon $DAEMON $*
+    [ $? -eq 0 ] || return 1
+    echo
+    return 0
+}
+
+start_daemon_debian() {
+    DAEMON=$1; shift
+    NAME=`basename $DAEMON`
+
+    echo -n $"Starting $NAME services... "
+    /sbin/start-stop-daemon --start --oknodo --quiet \
+	--pidfile /var/run/$NAME.pid --exec $DAEMON -- $*
+    [ $? -eq 0 ] || return 1
+    echo "done."
+    return 0
+}
+
+start_daemon_unknown() {
+    DAEMON=$1; shift
+    NAME=`basename $DAEMON`
+
+    echo -n $"Starting $NAME services... "
+    $DAEMON $*  2>&1 >/dev/null
+    [ $? -eq 0 ] || return 1
+    echo "done."
+    return 0
+}
+
+stop_daemon_rhl() {
+    DAEMON=$1; shift
+    NAME=`basename $DAEMON`
+
+    echo -n $"Shutting down $NAME services: "
+    killproc $DAEMON
+    [ $? -eq 0 ] || return 1
+    echo
+    return 0
+}
+
+stop_daemon_debian() {
+    DAEMON=$1; shift
+    NAME=`basename $DAEMON`
+
+    echo -n $"Shutting down $NAME services... "
+    /sbin/start-stop-daemon --stop --oknodo --quiet --pidfile /var/run/$NAME.pid
+    [ $? -eq 0 ] || return 1
+    echo "done."
+    return 0
+}
+
+stop_daemon_unknown() {
+    DAEMON=$1; shift
+    NAME=`basename $DAEMON`
+
+    echo "Sorry, this isn't implemented yet.  Kill $NAME by hand.  Patches are welcome :)"
+    return 0
+}
+
+########################################################################
+# Some other helpful tidbits
+
+# this one is evil, I know
+rhl_or_die() {
+    if ["rhl" != $DISTRO]; then
+	echo "Operation not available on your distribution.  Sorry."
+	exit 0
+    fi
+}
+
+default_restart() {
+    stop
+    start
+}	
+
+dispatch() {
+    case "$1" in
+	start)
+	    start
+	    ;;
+	stop)
+	    stop
+	    ;;
+	restart)
+	    default_restart
+	    ;;
+	reload)
+	    rhl_or_die
+	    reload
+	    ;;
+	status)
+	    rhl_or_die
+	    rhstatus
+	    ;;
+	condrestart)
+	    [ -f $LOCKFILE ] && default_restart || :
+	    ;;
+	*)
+	    echo $"Usage: $0 {start|stop|restart|reload|status|condrestart}"
+	    exit 1
+    esac
+}

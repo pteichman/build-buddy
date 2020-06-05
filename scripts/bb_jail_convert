@@ -1,0 +1,251 @@
+#!/usr/bin/perl -w
+
+# Copyright 2004 Novell, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+=pod
+
+=head1 NAME
+
+B<bb_jail_convert> - Make a new-style jail from an old BB jail
+
+=head1 SYNOPSIS
+
+bb_jail_convert [options] <old jail tarball> <new jail location>
+
+=head1 OPTIONS
+
+Options are:
+
+=over 4
+
+=item help
+
+print help.
+
+=item jail_type (j)
+
+Which kind of jail to make (file or dir).  Defaults to "file".
+
+=item target (t)
+
+Override the target of the jail.  By default, it is extracted from the
+filename.
+
+=item jail_version (V)
+
+Version of the jail itself (not the distribution).  Defaults to "1.0".
+
+=item owner (o)
+
+Owner of the jail, can be a full name.  Defaults to the username of
+the current user.
+
+=item owner_email (e)
+
+Email of the owner.  Empty by default.
+
+=item available (a)
+
+Whether the jail can be considered by the daemon for building or not.
+Defaults to "yes".
+
+=item tainted
+
+Marks this jail as a "dirty" jail--one that is not in pristine
+condition (because e.g., it has been built on by the build system).
+Should generally be set to "no" (the default), since the node
+automatically sets it to "yes" for jail that have been used.
+
+=item rug_path
+
+Path within the jail to the rug command.  Defaults to "/usr/bin/rug".
+
+=item rcd_path
+
+Path within the jail to the rcd command.  Defaults to "/usr/sbin/rcd".
+
+=item rcd_data_dir
+
+Path to where RCD keeps its data files within the jail.  Defaults to
+"/var/lib/rcd".
+
+=item mounts
+
+Comma-delimited list of mount points to mount ("bind") inside the
+jail.  Defaults to "/proc,/nfs".
+
+=back
+
+=cut
+
+use strict;
+
+use File::Spec::Functions 'rel2abs';
+BEGIN { rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+	$My::path = ($1||""); $My::bin = ($2||"");}
+use lib "$My::path/../lib";
+
+use Ximian::BB;
+use Ximian::Run ':all';
+use Ximian::Util ':all';
+use Ximian::BB::Jail;
+use Ximian::BB::Jail::File;
+use Ximian::BB::Jail::Dir;
+
+########################################################################
+
+sub usage {
+    reportline (2, "See the perldoc reference.");
+    exit;
+}
+
+my %args;
+parse_args_set (\%args, "base");
+parse_args
+    (\%args,
+     [
+      {names => ["help", "h", "?", ""], run => \&usage},
+      {names => ["jail_type",     "j"], type => "=s", default => "file"},
+      {names => ["target",        "t"], type => "=s", default => ""},
+      {names => ["jail_version",  "V"], type => "=s", default => "1.0"},
+      {names => ["owner",         "o"], type => "=s", default => getpwuid($>)},
+      {names => ["owner_email",   "e"], type => "=s", default => ""},
+      {names => ["available",     "a"], type => "=s", default => "yes"},
+      {names => ["tainted"           ], type => "=s", default => "no"},
+
+      {names => ["rug_path",   ], type => "=s", default => "/usr/bin/rug"},
+      {names => ["rcd_path",   ], type => "=s", default => "/usr/sbin/rcd"},
+      {names => ["rcd_data_dir"], type => "=s", default => "/var/lib/rcd"},
+
+      {names => ["mounts"], type => "=s", default => "/proc,/nfs"},
+     ]);
+
+die "usage: bb_jail_convert <old jail image> <new jail image>"
+    unless $ARGV[0] and $ARGV[1];
+my $source = rel2abs ($ARGV[0]);
+my $dest = rel2abs ($ARGV[1]);
+
+die "Source jail doesn't look right (must be distro-version-arch.tar.gz)\n"
+    unless ($source =~ m/^([^-]+-[^-]+-[^-]+).tar.gz$/);
+$args{target} = get_basename ($1) unless $args{target};
+
+########################################################################
+
+sub update_jail_metadata {
+    my $jail = shift;
+
+    my $main = $jail->get_or_new_metadata_tree ("main");
+    $main->{target} = $args{target};
+    $main->{jail_version} = $args{jail_version};
+    $main->{owner} = $args{owner};
+    $main->{owner_email} = $args{owner_email};
+    $main->{tainted} = $args{tainted};
+    $main->{available} = $args{available};
+    $main->{bb_version} = Ximian::BB::VERSION;
+    $jail->set_metadata_tree ("main", $main);
+
+    my $rcd = $jail->get_or_new_metadata_tree ("rcd");
+    $rcd->{rug_path} = $args{rug_path};
+    $rcd->{rcd_path} = $args{rcd_path};
+    $rcd->{rcd_data_dir} = $args{rcd_data_dir};
+    $jail->set_metadata_tree ("rcd", $rcd);
+
+    my $mounts = $jail->get_or_new_metadata_tree ("mounts");
+    $mounts->{mounts} = { i => [] };
+    foreach my $path (split /,/, $args{mounts}) {
+	push @{$mounts->{mounts}->{i}},
+	    { filesystem => $path, location => $path };
+    }
+    $jail->set_metadata_tree ("mounts", $mounts);
+
+    $jail->save;
+}
+
+if ($args{jail_type} =~ /file/i) {
+    # There doesn't seem to be a way of inserting a file into the ar
+    # archive and setting its name to 'jail.tar.gz' at the same time,
+    # so we must copy and then insert.  Moving would be faster in the
+    # same-filesystem case, but that sucks in other ways.
+
+    my $newjail = Ximian::BB::Jail::File->new (path => $dest);
+    update_jail_metadata ($newjail);
+
+    my $base = get_dirname ($dest);
+    my $tmp = `mktemp -d $base/bb_jail_convert.XXXXXX`;
+    die "Could not make temp dir: $!\n" if ($?/256);
+    chomp $tmp;
+
+    run_cmd ("cp $source $tmp/jail.tar.gz");
+    run_cmd ("ar -r $dest $tmp/jail.tar.gz");
+
+    run_cmd ("rm -rf $tmp");
+} elsif ($args{jail_type} =~ /dir/i) {
+    my $newjail = Ximian::BB::Jail::Dir->new (path => $dest);
+    update_jail_metadata ($newjail);
+    pushd "$dest/jail";
+    run_cmd ("gunzip -c $source | tar xf -");
+    popd;
+} else {
+    die "Unknown jail type: $args{jail_type}";
+}
+
+__END__
+
+=pod
+
+=head1 DESCRIPTION
+
+Converts BB jail images to the new metadata-enabled format.  The
+resulting jail image will contain a metadata object with id "main",
+containing the target of the jail and a version of "1.0".
+
+=head1 OPTIONS
+
+=over 4
+
+=item jail_type
+
+Determines if the new jail will be of the 'file' or 'dir' kind.
+Defaults to 'file'.
+
+=item target
+
+Target string the new jail should have.  Defaults to the target string
+taken from the filename of the source jail.
+
+=item jail_version
+
+Version string for the new jail (not the distro version, a version for
+the jail itself, in case it needs to be changed).  Defaults to "1.0".
+
+=item owner
+
+Owner of the jail.  Defaults to the current username.
+
+=back
+
+=head1 AUTHOR
+
+Dan Mills <thunder@ximian.com>
+
+=head1 COPYRIGHT
+
+Copyright 2004 Novell, Inc. <distribution@ximian.com>.  All rights
+reserved.
+
+=cut
+
+

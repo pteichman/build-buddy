@@ -1,0 +1,139 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+use strict 'vars';
+
+use Cwd;
+
+sub get_basename {
+    my $file = shift;
+    $file = "./$file" if ($file !~ /^\//);
+    $file =~ /^.*\/([^\/]*)$/;
+    return $1;
+}
+
+use FindBin;
+
+my $srcdir = (-e "$FindBin::RealBin/../Makefile.PL")
+    ? "$FindBin::RealBin/.." : "/usr/share/ximian-build-system";
+
+use lib "$FindBin::RealBin/../lib";
+
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Lint;
+
+use Getopt::Std;
+my %opts;
+getopts('hag:dn:R:S:V:t:b:', \%opts);
+
+sub usage {
+    print STDERR "usage: bb_lint [ -a ] [ -d ] [ -n testname ] [ -g group ]\n";
+    print STDERR "               [ -R revision ] [ -S serial ] [ -V version ]\n";
+    print STDERR "               [ -t target ] [ -b build-id ]\n";
+    print STDERR "                 -a: print all (even passed) tests\n";
+    print STDERR "                 -d: describe tests and possible solutions\n";
+    print STDERR "                 -g group: only run tests in a particular group\n";
+    print STDERR "                 -n testname: only run specified test\n";
+    exit 1;
+}
+
+usage if $opts{'h'};
+my $print_all = $opts{'a'};
+my $describe = $opts{'d'};
+my $group = $opts{'g'};
+my $testname = $opts{'n'};
+
+my $target = $opts{'t'} || intuit_os(undef, srcdir => $srcdir);
+my $build_id = $opts{'b'} || 'default';
+
+if ($target and $target !~ /^[^-]+-[^-]+-[^-]+$/) {
+    print STDERR "'$target' is not a valid target string\n";
+    exit 1;
+}
+
+my $rev =        (exists $opts{'R'} ? $opts{'R'} : undef);
+my $serial =     (exists $opts{'S'} ? $opts{'S'} : undef);
+my $version =    (exists $opts{'V'} ? $opts{'V'} : undef);
+
+my $archivedir = $ENV{BB_ARCHIVEDIR}
+    || ($ENV{TMPDIR} || '/tmp') . "/$ENV{USER}/built-packages";
+
+my $lintdir = "$srcdir/lint";
+
+my $args = {target=>$target,
+	    build_id=>$build_id};
+my ($bb_info, $distro_info, $packsys_info, $conf) = get_all_confs($args);
+
+# my ($os, $osvers, $arch) = split(/-/, $target);
+# my $conf = BB::parse_module_conf(packsys => $packsys,
+#                                  os => $os,
+#                                  osvers => $osvers,
+# 				 build_id => $build_id,
+#                                  arch => $arch);
+
+# Override the version if necessary
+$version = ($version || $conf->{version});
+
+my $test_opts = {
+		 'target' => $target,
+		 'distro_info' => $distro_info,
+		 'packsys_info' => $packsys_info,
+		 'archivedir' => $archivedir,
+		 'conf' => $conf,
+		 'print_all' => $print_all,
+		 'describe' => $describe,
+		 'group' => $group,
+		 'testname' => $testname,
+		 'rev' => $rev,
+		 'serial' => $serial,
+		 'version' => $version
+		};
+
+Ximian::BB::Lint::test_init(get_basename(Cwd::getcwd()), $test_opts);
+
+opendir LINTDIR, $lintdir;
+while (my $file = readdir LINTDIR) {
+    next if $file =~ /^\.+$/;
+    next if $file !~ /\.pm$/;
+
+    $file =~ /^(.*)\.pm/;
+    my $module = $1;
+
+    require "$lintdir/$file";
+    Ximian::BB::Lint::register_module_tests ($module);
+}
+closedir LINTDIR;
+
+if (-f "./BBLint.pm") {
+    require "./BBLint.pm";
+    Ximian::BB::Lint::register_module_tests("BBLint");
+}
+
+		   Ximian::BB::Lint::run_tests();
+my %results = %{Ximian::BB::Lint::test_results()};
+
+my $total = $results{'pass'} + $results{'fail'} + $results{'warn'};
+
+my $log = "$results{'fail'} of $total tests failed";
+$log .= " ($results{'warn'} "
+		   . ($results{'warn'} == 1 ? 'warning' : 'warnings')
+		   . ")" if $results{'warn'};
+
+print "bb_lint: $log\n";
+
+exit 1 if $results{'fail'};
+

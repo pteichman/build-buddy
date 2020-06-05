@@ -1,0 +1,111 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: bb_scp 3068 2005-12-22 03:41:13Z v_thunder $
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||""); $My::bin = $My::bin;
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+use strict;
+use POSIX;
+use IO::File;
+use File::Copy;
+use File::Path;
+
+use Ximian::Util ':all';
+use Ximian::Sighandler;
+use Ximian::BB::Globals;
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Target ':all';
+use Ximian::BB::Macros ':all';
+
+########################################################################
+
+# Set up signal handlers for clean exit.
+$SIG{INT} = $SIG{TERM} = \&Ximian::Sighandler::std_exit_handler;
+
+# Turn off buffering on stdin/stdout for happier logging
+STDIN->autoflush(1);
+STDOUT->autoflush(1);
+
+sub usage {
+    print <<EOF;
+Usage: bb_scp
+
+bb_scp is a wraper around scp that sets a key.  The location of the
+key is configurable via bb.conf.
+EOF
+}
+
+my %args;
+parse_args_set (\%args, "base");
+parse_args
+    (\%args,
+     [
+      {names => ["help", "usage", "h", "?", ""], run => \&usage},
+      ]);
+
+my $bbconf = get_bb_conf ();
+my $confdirs_ref = $bbconf->{dirs}->{config}->{i};
+@Ximian::BB::Globals::confdirs = macro_replace ($confdirs_ref, [$bbconf]);
+
+my ($packsys, $target) = $args{target}?
+    split (':', $args{target}) : detect_target ();
+$Ximian::BB::Globals::packsys = $packsys;
+$Ximian::BB::Globals::target = $target;
+
+my $osconf = get_os_conf ();
+
+$Ximian::BB::Globals::confs = [$osconf, $bbconf];
+
+########################################################################
+
+my $ret = 0;
+my $tmp = make_temp_dir;
+
+umask 0266;
+
+die "Keyfile not defined in bb.conf" unless $bbconf->{keyfile};
+die "Can't read keyfile \"$bbconf->{keyfile}\"" unless -f macro_replace ($bbconf->{keyfile});
+reportline (3, "Copying key \"" . macro_replace ($bbconf->{keyfile}) . "\" to a temp dir.");
+copy (macro_replace ($bbconf->{keyfile}), "$tmp/id_dsa")
+    or die "Could not copy key to $tmp/id_dsa";
+
+my @cmd = ("scp", "-i", "$tmp/id_dsa",
+           "-oBatchMode=yes",
+           "-oStrictHostKeyChecking=no",
+           "-oCheckHostIP=no",
+           "-oPasswordAuthentication=no",
+           @ARGV);
+reportline (3, "Running: @cmd");
+$ret = system (@cmd);
+
+rmtree $tmp if -d $tmp;
+exit $ret;

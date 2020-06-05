@@ -1,0 +1,131 @@
+#!/bin/sh
+
+# note this works for both a.out and ELF executables
+# it also auto-generates requirment lines for shell scripts
+
+# Forked for the Helix Code Build System on November 11, 2000
+# Based on the find-requires shipped with Red Hat Linux 7
+# Changes: ignore libfakeroot.so dependency
+#          saner checking for executables
+
+ulimit -c 0
+
+needed=1
+if [ X"$1" = Xldd ]; then
+	needed=0
+elif [ X"$1" = Xobjdump ]; then
+	needed=1
+fi
+
+if `type objdump >/dev/null 2>&1`; then
+	OBJDUMP=objdump;
+else
+	OBJDUMP=unusable; needed=0;
+fi
+
+excludelist="rc-rpm-helper.so\|rc-rpm-helper-with-rpmio.so\|rc-{rpm_rpmio_rpmdb}-4.0.3.so\|rc-{rpm_rpmio_rpmdb}.so\|rc-{rpm_rpmio}.so.0\|rc-{rpm}.so.0\|rc-{rpm_rpmio_rpmdb}-4.0.4.so"
+
+filelist=`sed "s/[]['\"*?{}]/\\\\\&/g"`
+[ -z "$filelist" ] && exit 0 #emulate -r option for xargs
+
+nfilelist=`echo $filelist | xargs -n 1 | grep -v $excludelist`
+[ -z "$nfilelist" ] && exit 0 #emulate -r option for xargs
+
+exelist=`echo $nfilelist | xargs file | egrep -v ":.* (commands|script) " | \
+	egrep ":.*(ELF|MAGIC|COFF)" | grep ":.*executable" | cut -d: -f1`
+scriptlist=`echo $nfilelist | xargs file | \
+	egrep ":.* (commands|script) " | cut -d: -f1`
+liblist=`echo $nfilelist | xargs file | grep ":.*shared object" | cut -d : -f1`
+
+interplist=
+perllist=
+pythonlist=
+tcllist=
+
+#
+# --- Alpha does not mark 64bit dependencies
+case `uname -m` in
+  alpha*)	mark64="" ;;
+  *)		mark64="()(64bit)" ;;
+esac
+
+if [ "$needed" -eq 0 ]; then
+#
+# --- Executable dependency sonames.
+  for f in $exelist; do
+    [ -r $f -a -x $f ] || continue
+    lib64=`if file -L $f 2>/dev/null | \
+	grep "ELF 64-bit" >/dev/null; then echo "$mark64"; fi`
+    ldd $f | awk '/=>/ {
+	if ($1 !~ /libNoVersion.so/ && $1 !~ /4[um]lib.so/ && $1 !~ /libredhat-kernel.so/ && $1 !~ /libfakeroot.so/) {
+	    gsub(/'\''"/,"\\&",$1);
+	    printf "%s'$lib64'\n", $1
+	}
+    }'
+  done | xargs -r -n 1 basename | sort -u
+
+#
+# --- Library dependency sonames.
+  for f in $liblist; do
+    [ -r $f ] || continue
+    lib64=`if file -L $f 2>/dev/null | \
+	grep "ELF 64-bit" >/dev/null; then echo "$mark64"; fi`
+    ldd $f | awk '/=>/ {
+	if ($1 !~ /libNoVersion.so/ && $1 !~ /4[um]lib.so/ && $1 !~ /libredhat-kernel.so/ && $1 !~ /libfakeroot.so/) {
+	    gsub(/'\''"/,"\\&",$1);
+	    printf "%s'$lib64'\n", $1
+	}
+    }'
+  done | xargs -r -n 1 basename | sort -u
+fi
+
+# --- Script interpreters.
+for f in $scriptlist; do
+    [ -r $f -a -x $f ] || continue
+    interp=`head -n 1 $f | sed -e 's/^\#\![ 	]*//' | cut -d" " -f1`
+    interplist="$interplist $interp"
+    case $interp in
+    */perl)	perllist="$perllist $f" ;;
+    esac
+done
+[ -n "$interplist" ] && { echo "$interplist" | tr '[:blank:]' \\n | sort -u ; }
+
+#
+# --- Add perl module files to perllist.
+for f in $filelist; do
+    [ -r $f -a "`basename ${f} .pm`" != "${f}" ] && perllist="$perllist $f"
+done
+
+
+if [ "$OBJDUMP" != "unusable" ]; then
+#
+# --- Weak symbol versions (from glibc).
+[ -n "$mark64" ] && mark64="(64bit)"
+for f in $liblist $exelist ; do
+    [ -r $f ] || continue
+    lib64=`if file -L $f 2>/dev/null | \
+	grep "ELF 64-bit" >/dev/null; then echo "$mark64"; fi`
+    $OBJDUMP -p $f | awk 'BEGIN { START=0; LIBNAME=""; needed='$needed'; }
+	/^$/ { START=0; }
+	/^Dynamic Section:$/ { START=1; }
+	(START==1) && /NEEDED/ {
+	    if (needed) {
+		if ("'$lib64'" != "") {
+		    sub(/$/, "()'$lib64'", $2) ;
+		}
+		print $2 ;
+	    }
+	}
+	/^Version References:$/ { START=2; }
+	(START==2) && /required from/ {
+	    sub(/:/, "", $3);
+	    LIBNAME=$3;
+	}
+	(START==2) && (LIBNAME!="") && ($4!="") && (($4~/^GLIBC_*/) || ($4~/^GCC_*/)) {
+	    print LIBNAME "(" $4 ")'$lib64'";
+	}
+    '
+done | sort -u
+fi
+
+exit 0

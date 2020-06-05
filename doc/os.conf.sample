@@ -1,0 +1,755 @@
+<?xml version="1.0"?>
+<conf>
+    <targetset>
+        <filter><i>.*</i></filter>
+        <data id="cflags">[[cflags]]</data>
+        <data id="error_cflags">[[error_cflags]]</data>
+        <data id="warn_cflags">[[warn_cflags]]</data>
+        <macro id="autoconf253">autoconf-2.53</macro>
+        <macro id="autogen">./autogen.sh --prefix=[[prefix]] --sysconfdir=[[sysconfdir]] --mandir=[[mandir]] --infodir=[[infodir]] --localstatedir=[[localstatedir]]</macro>
+        <macro id="automake">automake --gnu --add-missing --include-deps</macro>
+        <macro id="automake14">automake-1.4 --gnu --add-missing --include-deps</macro>
+        <macro id="cflags">-g</macro>
+        <macro id="configure">./configure --prefix=[[prefix]] --libdir=[[libdir]] --sysconfdir=[[sysconfdir]] --mandir=[[mandir]] --infodir=[[infodir]] --localstatedir=[[localstatedir]]</macro>
+        <macro id="docdir">[[prefix]]/share/doc</macro>
+        <macro id="error_cflags">-Werror</macro>
+        <macro id="infodir">[[prefix]]/share/info</macro>
+        <macro id="initdir">/etc/rc.d</macro>
+        <macro id="install">${MAKE} install prefix=${DESTDIR}[[prefix]] libdir=${DESTDIR}[[libdir]] sysconfdir=${DESTDIR}[[sysconfdir]] mandir=${DESTDIR}[[mandir]] infodir=${DESTDIR}[[infodir]] localstatedir=${DESTDIR}[[localstatedir]]</macro>
+        <macro id="ldconfig">ldconfig</macro>
+        <macro id="libdir">[[prefix]]/[[libdir_base]]</macro>
+        <macro id="libdir_base">lib</macro>
+        <macro id="localstatedir">/var</macro>
+        <macro id="mandir">[[prefix]]/share/man</macro>
+        <macro id="perl_mb_prepare">perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlinstall">${MAKE} PREFIX=${DESTDIR}[[usrprefix]] install</macro>
+        <macro id="perlmake">${MAKE} OPTIMIZE="-O2 -g -Wall"; ${MAKE} test || true</macro>
+        <macro id="perlmodbase">[[usrlibdir]]/perl5</macro>
+        <macro id="perlmoddir">[[perlmodbase]]/*/*</macro>
+        <macro id="perlprepare">perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+        <macro id="prefix">/usr</macro>
+        <macro id="rcKdirs">rc0.d rc1.d rc6.d</macro>
+        <macro id="rcSdirs">rc2.d rc3.d rc4.d rc5.d</macro>
+        <macro id="so">so</macro>
+        <macro id="sysconfdir">/etc</macro>
+        <macro id="tinderbox_cgibin">/var/www/cgi-bin/tinderbox2</macro>
+        <macro id="tinderbox_prefix">/home/tinder</macro>
+        <macro id="usrautogen">./autogen.sh --prefix=[[usrprefix]] --sysconfdir=[[usrsysconfdir]] --mandir=[[usrmandir]] --infodir=[[usrinfodir]] --localstatedir=[[localstatedir]]</macro>
+        <macro id="usrconfigure">./configure --prefix=[[usrprefix]] --libdir=[[usrlibdir]] --sysconfdir=[[usrsysconfdir]] --mandir=[[usrmandir]] --infodir=[[usrinfodir]] --localstatedir=[[localstatedir]]</macro>
+        <macro id="usrinfodir">[[usrprefix]]/share/info</macro>
+        <macro id="usrinstall">${MAKE} install prefix=${DESTDIR}[[usrprefix]] libdir=${DESTDIR}[[usrlibdir]] sysconfdir=${DESTDIR}[[usrsysconfdir]] mandir=${DESTDIR}[[usrmandir]] infodir=${DESTDIR}[[usrinfodir]] localstatedir=${DESTDIR}[[localstatedir]]</macro>
+        <macro id="usrlibdir">[[usrprefix]]/[[libdir_base]]</macro>
+        <macro id="usrmandir">[[usrprefix]]/share/man</macro>
+        <macro id="usrprefix">/usr</macro>
+        <macro id="usrsysconfdir">/etc</macro>
+        <macro id="warn_cflags">-Wall -Wstrict-prototypes -Wmissing-prototypes</macro>
+        <macro id="x11appdefaults">[[x11prefix]]/lib/X11/app-defaults</macro>
+        <macro id="x11configure">./configure --prefix=[[x11prefix]] --libdir=[[x11libdir]] --sysconfdir=[[x11sysconfdir]] --mandir=[[x11mandir]] --infodir=[[x11infodir]] --localstatedir=[[localstatedir]]</macro>
+        <macro id="x11infodir">[[usrinfodir]]</macro>
+        <macro id="x11install">${MAKE} install prefix=${DESTDIR}[[x11prefix]] libdir=${DESTDIR}[[x11libdir]] sysconfdir=${DESTDIR}[[x11sysconfdir]] mandir=${DESTDIR}[[x11mandir]] infodir=${DESTDIR}[[x11infodir]] localstatedir=${DESTDIR}[[localstatedir]]</macro>
+        <macro id="x11libdir">[[x11prefix]]/[[libdir_base]]</macro>
+        <macro id="x11mandir">[[x11prefix]]/man</macro>
+        <macro id="x11prefix">/usr/X11R6</macro>
+        <macro id="x11sysconfdir">/etc</macro>
+        <path id="cc">/usr/bin/gcc</path>
+        <path id="cxx">/usr/bin/g++</path>
+        <path id="default">[[prefix]]/bin:[[x11prefix]]/bin:/usr/bin:/bin</path>
+        <path id="gnome_path">/usr</path>
+        <path id="ld_library">[[prefix]]/lib:[[x11prefix]]/lib:/lib:/usr/lib</path>
+        <path id="pkg_config_path">/usr/lib/pkgconfig</path>
+        <path id="rpm_libdir">/usr/lib/rpm</path>
+    </targetset>
+    <targetset>
+        <filter><i>x86_64</i></filter>
+        <data id="cflags">-g -fPIC</data>
+        <macro id="libdir_base">lib64</macro>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse</i></filter>
+        <data id="aclocal_flags">-I [[prefix]]/share/aclocal</data>
+        <data id="cflags">[[cflags]] -I[[prefix]]/include</data>
+        <data id="cppflags">-I[[prefix]]/include</data>
+        <data id="ldflags">-L[[prefix]]/lib</data>
+        <macro id="docdir">[[usrprefix]]/share/doc/packages</macro>
+        <macro id="infodir">[[prefix]]/info</macro>
+        <macro id="mandir">[[prefix]]/man</macro>
+        <macro id="prefix">/opt/gnome</macro>
+        <macro id="sysconfdir">/etc[[prefix]]</macro>
+        <macro id="x11infodir">[[usrprefix]]/info</macro>
+        <path id="gnome_path">/opt/gnome:/usr</path>
+        <path id="pkg_config_path">/opt/gnome2/lib/pkgconfig:/opt/gnome/lib/pkgconfig:/usr/lib/pkgconfig:/opt/gnome2/lib64/pkgconfig:/opt/gnome/lib64/pkgconfig:/usr/lib64/pkgconfig:/opt/novell/zenworks/lib/pkgconfig</path>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse-63-i386</i></filter>
+        <macro id="docdir">[[usrprefix]]/doc</macro>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+    <targetset>
+        <filter><i>suse-64-i386</i></filter>
+        <macro id="docdir">[[usrprefix]]/doc</macro>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+    <targetset>
+        <filter><i>suse-71-i386</i></filter>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+    <targetset>
+        <filter><i>suse-72-i386</i></filter>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse-73-i386</i></filter>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+    <targetset>
+        <filter><i>suse-73-ppc</i></filter>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse-80-i386</i></filter>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+    <targetset>
+        <filter><i>suse-80-ppc</i></filter>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse-81-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>suse-81-ppc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse-82</i></filter>
+        <macro id="prefix">/opt/gnome2</macro>
+    </targetset>
+    <targetset>
+        <filter><i>suse-82-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>suse-82-ppc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse-90</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>suse-90-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>suse-90-ppc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse-91</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>suse-91-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>suse-91-x86_64</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+        <macro id="perlmodbase">[[usrprefix]]/lib/perl5</macro>
+    </targetset>
+    <targetset>
+        <filter><i>suse-91-ppc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse-92</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>suse-92-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>suse-92-x86_64</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+        <macro id="perlmodbase">[[usrprefix]]/lib/perl5</macro>
+    </targetset>
+    <targetset>
+        <filter><i>suse-92-ppc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse-93</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>suse-93-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>suse-93-x86_64</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+        <macro id="perlmodbase">[[usrprefix]]/lib/perl5</macro>
+    </targetset>
+    <targetset>
+        <filter><i>suse-93-ppc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>suse-10</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>suse-10-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>suse-10-x86_64</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+        <macro id="perlmodbase">[[usrprefix]]/lib/perl5</macro>
+    </targetset>
+    <targetset>
+        <filter><i>suse-10-ppc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>sles</i></filter>
+        <data id="aclocal_flags">-I [[prefix]]/share/aclocal</data>
+        <data id="cflags">[[cflags]] -I[[prefix]]/include</data>
+        <data id="cppflags">-I[[prefix]]/include</data>
+        <data id="ldflags">-L[[prefix]]/lib</data>
+        <macro id="docdir">[[usrprefix]]/share/doc/packages</macro>
+        <macro id="infodir">[[prefix]]/info</macro>
+        <macro id="mandir">[[prefix]]/man</macro>
+        <macro id="prefix">/opt/gnome</macro>
+        <macro id="sysconfdir">/etc[[prefix]]</macro>
+        <macro id="usrinfodir">[[usrprefix]]/info</macro>
+        <macro id="x11infodir">[[usrprefix]]/info</macro>
+        <path id="default">[[prefix]]/bin:/opt/gnome/bin:[[x11prefix]]/bin:/usr/bin:/bin</path>
+        <path id="gnome_path">/opt/gnome:/usr</path>
+        <path id="ld_library">[[prefix]]/lib:/opt/gnome/lib:[[x11prefix]]/lib:/lib:/usr/lib</path>
+        <path id="pkg_config_path">/opt/gnome/lib/pkgconfig:/usr/lib/pkgconfig:/opt/novell/zenworks/lib/pkgconfig</path>
+    </targetset>
+
+    <targetset>
+        <filter><i>sles-8-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>sles-8-ppc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>sles-9</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>sles-9-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>sles-9-x86_64</i></filter>
+        <macro id="perlmodbase">[[usrprefix]]/lib/perl5</macro>
+    </targetset>
+    <targetset>
+        <filter><i>sles-9-ppc</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>sles-9-ia64</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>nld</i></filter>
+        <data id="aclocal_flags">-I /opt/gnome/share/aclocal</data>
+        <data id="cflags">[[cflags]] -I[[prefix]]/include</data>
+        <data id="cppflags">-I[[prefix]]/include</data>
+        <data id="ldflags">-L[[prefix]]/lib</data>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+        <macro id="autoconf253">autoconf</macro>
+        <macro id="docdir">[[usrprefix]]/share/doc/packages</macro>
+        <macro id="infodir">[[prefix]]/share/info</macro>
+        <macro id="mandir">[[prefix]]/share/man</macro>
+        <macro id="prefix">/opt/gnome</macro>
+        <macro id="sysconfdir">/etc[[prefix]]</macro>
+        <macro id="usrinfodir">[[usrprefix]]/share/info</macro>
+        <macro id="usrmandir">[[usrprefix]]/share/man</macro>
+        <macro id="x11infodir">[[usrprefix]]/share/info</macro>
+        <path id="default">/opt/gnome/bin:[[x11prefix]]/bin:/usr/bin:/bin</path>
+        <path id="gnome_path">/opt/gnome:/usr</path>
+        <path id="ld_library">[[prefix]]/lib:/opt/gnome/lib:[[x11prefix]]/lib:/lib:/usr/lib</path>
+        <path id="pkg_config_path">/opt/gnome/lib/pkgconfig:/usr/lib/pkgconfig:/opt/novell/zenworks/lib/pkgconfig</path>
+    </targetset>
+    <targetset>
+        <filter><i>nld-9-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>nld-9-x86_64</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>sld</i></filter>
+        <data id="aclocal_flags">-I /opt/gnome/share/aclocal -I /opt/gnome2/share/aclocal</data>
+        <data id="cflags">[[cflags]] -I[[prefix]]/include</data>
+        <data id="cppflags">-I[[prefix]]/include</data>
+        <data id="ldflags">-L[[prefix]]/lib</data>
+        <macro id="autoconf253">autoconf</macro>
+        <macro id="docdir">[[usrprefix]]/share/doc/packages</macro>
+        <macro id="infodir">[[prefix]]/info</macro>
+        <macro id="mandir">[[prefix]]/man</macro>
+        <macro id="prefix">/opt/gnome2</macro>
+        <macro id="sysconfdir">/etc[[prefix]]</macro>
+        <macro id="usrinfodir">[[usrprefix]]/info</macro>
+        <macro id="usrmandir">[[usrprefix]]/man</macro>
+        <macro id="x11infodir">[[usrprefix]]/info</macro>
+        <path id="default">/opt/gnome2/bin:/opt/gnome/bin:[[x11prefix]]/bin:/usr/bin:/bin</path>
+        <path id="gnome_path">/opt/gnome2:/opt/gnome:/usr</path>
+        <path id="ld_library">[[prefix]]/lib:/opt/gnome/lib:[[x11prefix]]/lib:/lib:/usr/lib</path>
+        <path id="pkg_config_path">/opt/gnome2/lib/pkgconfig:/opt/gnome/lib/pkgconfig:/usr/lib/pkgconfig:/opt/novell/zenworks/lib/pkgconfig</path>
+    </targetset>
+    <targetset>
+        <filter><i>sld-10-i586</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>redhat</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>redhat-62-i386</i></filter>
+        <macro id="docdir">[[prefix]]/doc</macro>
+        <macro id="infodir">[[prefix]]/info</macro>
+        <macro id="mandir">[[prefix]]/man</macro>
+        <macro id="usrinfodir">[[usrprefix]]/info</macro>
+        <macro id="usrmandir">[[usrprefix]]/man</macro>
+        <macro id="x11infodir">[[usrprefix]]/info</macro>
+    </targetset>
+    <targetset>
+        <filter><i>redhat-70-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>redhat-70-alpha</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>redhat-71-i386</i></filter>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+    <targetset>
+        <filter><i>redhat-72-i386</i></filter>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+    <targetset>
+        <filter><i>redhat-73-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>redhat-80-i386</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+        <macro id="automake14">automake-1.4 --gnu --add-missing --include-deps</macro>
+    </targetset>
+    <targetset>
+        <filter><i>redhat-9-i386</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+        <macro id="automake14">automake-1.4 --gnu --add-missing --include-deps</macro>
+    </targetset>
+    <targetset>
+        <filter><i>redhat-10-i386</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+        <macro id="automake14">automake-1.4 --gnu --add-missing --include-deps</macro>
+    </targetset>
+
+    <targetset>
+        <filter><i>fedora</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+        <macro id="automake14">automake-1.4 --gnu --add-missing --include-deps</macro>
+    </targetset>
+    <targetset>
+        <filter><i>fedora-1-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>fedora-2-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>fedora-2-x86_64</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>fedora-3-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>fedora-3-x86_64</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>rhel</i></filter>
+        <macro id="automake14">automake-1.4 --gnu --add-missing --include-deps</macro>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-21as-i386</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>rhel-3as</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-3as-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-3as-x86_64</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-3ws</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-3ws-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-3ws-x86_64</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-3es</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-3es-i386</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>rhel-4as</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-4as-x86_64</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-4as-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-4ws</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-4ws-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-4ws-x86_64</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-4es</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>rhel-4es-i386</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>mandrake</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>mandrake-70-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>mandrake-72-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>mandrake-80-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>mandrake-81-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>mandrake-82-i586</i></filter>
+        <macro id="perl_mb_prepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlprepare">mkdir -p ${DESTDIR}[[perlmodbase]]; perl Makefile.PL PREFIX=${DESTDIR}[[usrprefix]] INSTALLDIRS=site</macro>
+    </targetset>
+    <targetset>
+        <filter><i>mandrake-90-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>mandrake-91-i586</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>mandrake-92-i586</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+    <targetset>
+        <filter><i>mandrake-100-i586</i></filter>
+        <data id="rpmbuild_cmd">rpmbuild</data>
+    </targetset>
+
+    <targetset>
+        <filter><i>turbolinux-60-i386</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>caldera</i></filter>
+        <data id="aclocal_flags">-I [[prefix]]/share/aclocal</data>
+        <macro id="docdir">[[usrprefix]]/doc</macro>
+        <macro id="infodir">[[prefix]]/info</macro>
+        <macro id="mandir">[[prefix]]/man</macro>
+        <macro id="prefix">/opt/gnome</macro>
+        <macro id="rpm_libdir">[[usrprefix]]/lib/rpm</macro>
+        <macro id="sysconfdir">/etc/gnome</macro>
+        <macro id="usrinfodir">[[usrprefix]]/info</macro>
+        <macro id="usrmandir">[[usrprefix]]/man</macro>
+        <macro id="x11infodir">[[usrinfodir]]</macro>
+        <macro id="x11sysconfdir">/etc</macro>
+    </targetset>
+    <targetset>
+        <filter><i>caldera-24-i386</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>yellowdog</i></filter>
+        <data id="cflags">[[cflags]] -I[[x11prefix]]/include</data>
+        <data id="cppflags">-I[[x11prefix]]/include</data>
+        <data id="cxxflags">-I[[x11prefix]]/include</data>
+        <data id="ldflags">-L[[x11prefix]]/lib</data>
+    </targetset>
+    <targetset>
+        <filter><i>yellowdog-20-ppc</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>yellowdog-21-ppc</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>yellowdog-22-ppc</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>yellowdog-23-ppc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>linuxppc</i></filter>
+        <macro id="docdir">[[prefix]]/doc</macro>
+        <macro id="infodir">[[prefix]]/info</macro>
+        <macro id="mandir">[[prefix]]/man</macro>
+        <macro id="usrinfodir">[[usrprefix]]/info</macro>
+        <macro id="usrmandir">[[usrprefix]]/man</macro>
+        <macro id="x11infodir">[[usrprefix]]/info</macro>
+    </targetset>
+    <targetset>
+        <filter><i>linuxppc-2000-ppc</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>linuxppc-2000q4-ppc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>macos</i></filter>
+        <data id="cppflags">-I[[prefix]]/include -I[[prefix]]/include/db3 -no-cpp-precomp</data>
+        <data id="gnome_path">/opt/ximian</data>
+        <data id="ldflags">-L[[prefix]]/lib -lm</data>
+        <data id="pkg_config_path">/opt/ximian/lib/pkgconfig</data>
+        <macro id="initdir">/etc</macro>
+        <macro id="ldconfig">/sbin/ldconfig</macro>
+        <macro id="perl_mb_prepare">perl Build.PL destdir=${DESTDIR} installdirs=perl</macro>
+        <macro id="perlinstall">${MAKE} PREFIX=${DESTDIR}[[usrprefix]] INSTALLPRIVLIB=${DESTDIR}[[perlmoddir]] INSTALLARCHLIB=${DESTDIR}[[perlmoddir]]/darwin install; find ${DESTDIR} -type f -name .packlist |xargs rm -f; find ${DESTDIR} -type f -name perllocal.pod |xargs rm -f</macro>
+        <macro id="perlmake">perl Makefile.PL INSTALLDIRS=perl; ${MAKE} CC=gcc OPTIMIZE="-O2 -g -Wall"; ${MAKE} test</macro>
+        <macro id="perlmoddir">/System/Library/Perl</macro>
+        <macro id="perlprepare">perl Makefile.PL INSTALLDIRS=perl</macro>
+        <macro id="prefix">/opt/ximian</macro>
+        <macro id="so">dylib</macro>
+        <macro id="sysconfdir">[[prefix]]/etc</macro>
+        <macro id="usrprefix">/opt/ximian</macro>
+        <macro id="x11prefix">[[prefix]]</macro>
+    </targetset>
+    <targetset>
+        <filter><i>macos-102-ppc</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>macos-103-ppc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>ps2</i></filter>
+        <macro id="docdir">[[prefix]]/doc</macro>
+        <macro id="infodir">[[prefix]]/info</macro>
+        <macro id="mandir">[[prefix]]/man</macro>
+        <macro id="usrinfodir">[[usrprefix]]/info</macro>
+        <macro id="usrmandir">[[usrprefix]]/man</macro>
+        <macro id="x11infodir">[[usrprefix]]/info</macro>
+    </targetset>
+    <targetset>
+        <filter><i>ps2-10beta-mipsel</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>debian</i></filter>
+        <data id="standards_version">3.1.1.1</data>
+        <macro id="initdir">[[sysconfdir]]</macro>
+        <macro id="perl_mb_prepare">perl Build.PL destdir=${DESTDIR} installdirs=vendor</macro>
+        <macro id="perlmoddir">[[usrprefix]]/share/perl5</macro>
+        <macro id="perlprepare">perl Makefile.PL INSTALLDIRS=vendor</macro>
+    </targetset>
+    <targetset>
+        <filter><i>debian-potato-i386</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>debian-potato-powerpc</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>debian-woody-i386</i></filter>
+        <macro id="x11appdefaults">/etc/X11/app-defaults</macro>
+    </targetset>
+    <targetset>
+        <filter><i>debian-woody-powerpc</i></filter>
+        <macro id="x11appdefaults">/etc/X11/app-defaults</macro>
+    </targetset>
+
+    <targetset>
+        <filter><i>solaris</i></filter>
+        <data id="cplus_include_path">/usr/openwin/include</data>
+        <data id="cppflags">-I/opt/gnome/include -I/opt/gnome/include/db3</data>
+        <data id="ldflags">-L/opt/gnome/lib -lm</data>
+        <macro id="autogen">./autogen.sh --sysconfdir=/opt/gnome/etc --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info --localstatedir=[[localstatedir]]</macro>
+        <macro id="configure">./configure --sysconfdir=/opt/gnome/etc --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info --localstatedir=[[localstatedir]]</macro>
+        <macro id="docdir">/opt/gnome/doc</macro>
+        <macro id="infodir">/opt/gnome/info</macro>
+        <macro id="initdir">/etc</macro>
+        <macro id="install">${MAKE} install sysconfdir=${DESTDIR}/opt/gnome/etc prefix=${DESTDIR}/opt/gnome mandir=${DESTDIR}/opt/gnome/man infodir=${DESTDIR}/opt/gnome/info localstatedir=${DESTDIR}[[localstatedir]]</macro>
+        <macro id="ldconfig">/bin/true</macro>
+        <macro id="mandir">/opt/gnome/man</macro>
+        <macro id="perl_mb_prepare">perl Build.PL destdir=${DESTDIR} installdirs=site</macro>
+        <macro id="perlinstall">${MAKE} PREFIX=${DESTDIR}/usr/local install</macro>
+        <macro id="perlmoddir">/usr/local/lib/perl5/*/*</macro>
+        <macro id="perlprepare">perl Makefile.PL INSTALLDIRS=site</macro>
+        <macro id="prefix">/opt/gnome</macro>
+        <macro id="sysconfdir">/opt/gnome/etc</macro>
+        <macro id="usrautogen">./autogen.sh --sysconfdir=/opt/gnome/etc --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info --localstatedir=[[localstatedir]]</macro>
+        <macro id="usrconfigure">./configure --sysconfdir=/opt/gnome/etc --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info --localstatedir=[[localstatedir]]</macro>
+        <macro id="usrinfodir">/opt/gnome/info</macro>
+        <macro id="usrinstall">${MAKE} install sysconfdir=${DESTDIR}/opt/gnome/etc prefix=${DESTDIR}/opt/gnome mandir=${DESTDIR}/opt/gnome/man infodir=${DESTDIR}/opt/gnome/info localstatedir=${DESTDIR}[[localstatedir]]</macro>
+        <macro id="usrmandir">/opt/gnome/man</macro>
+        <macro id="usrprefix">/opt/gnome</macro>
+        <macro id="usrsysconfdir">/opt/gnome/etc/</macro>
+        <macro id="x11appdefaults">/usr/dt/app-defaults/C</macro>
+        <macro id="x11configure">./configure --sysconfdir=/opt/gnome/etc --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info --localstatedir=[[localstatedir]]</macro>
+        <macro id="x11infodir">/opt/gnome/info</macro>
+        <macro id="x11install">${MAKE} install sysconfdir=${DESTDIR}/opt/gnome/etc prefix=${DESTDIR}/opt/gnome mandir=${DESTDIR}/opt/gnome/man infodir=${DESTDIR}/opt/gnome/info localstatedir=${DESTDIR}[[localstatedir]]</macro>
+        <macro id="x11mandir">/opt/gnome/man</macro>
+        <macro id="x11prefix">/opt/gnome</macro>
+        <macro id="x11sysconfdir">/opt/gnome/etc</macro>
+        <path id="cc">/usr/local/bin/gcc</path>
+        <path id="cxx">/usr/local/bin/g++</path>
+        <path id="default">/usr/gnome/bin:/opt/gnome/bin:/opt/sfw/bin:/usr/local/bin:/usr/xpg4/bin:/usr/bin:/bin:/usr/ccs/bin:/usr/openwin/bin:/usr/ucb</path>
+        <path id="gnome_path">/opt/gnome</path>
+        <path id="ld_library">/usr/gnome/lib:/usr/local/lib:/opt/gnome/lib:/usr/openwin/lib:/usr/lib:/lib</path>
+        <path id="pkg_config_path">/opt/gnome/lib/pkgconfig</path>
+        <path id="rpm_libdir">/opt/gnome/lib/rpm</path>
+    </targetset>
+    <targetset>
+        <filter><i>solaris-27-sparc</i></filter>
+    </targetset>
+    <targetset>
+        <filter><i>solaris-28-sparc</i></filter>
+    </targetset>
+
+    <targetset>
+        <filter><i>hpux</i></filter>
+        <data id="aclocal_flags">-I /opt/gnome/share/aclocal</data>
+        <data id="cppflags">-I/usr/local/include -I/usr/contrib/X11R6/include -I/opt/gnome/include -I/opt/xpm/include</data>
+        <data id="dir_group">bin</data>
+        <data id="dir_owner">bin</data>
+        <data id="dir_perms">0755</data>
+        <data id="file_group">bin</data>
+        <data id="file_owner">bin</data>
+        <data id="gnome_path">/opt/gnome</data>
+        <data id="ldflags">-L/usr/contrib/X11R6/lib -L/opt/gnome/lib -L/opt/xpm/lib</data>
+        <data id="pkg_config_path">/opt/gnome/lib/pkgconfig</data>
+        <macro id="aclocal">aclocal -I macros -I /opt/gnome/share/aclocal</macro>
+        <macro id="autogen">gettextize --force --copy; libtoolize --force --copy; aclocal -I /opt/gnome/share/aclocal; autoheader; if test -f Makefile.am; then automake --include-deps --add-missing --add-file bb-ident.c; fi; autoconf; ./configure --sysconfdir=/etc/opt/gnome --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info --localstatedir=[[localstatedir]]</macro>
+        <macro id="automake">automake --include-deps --add-missing --add-file bb-ident.c</macro>
+        <macro id="configure">./configure --sysconfdir=/etc/opt/gnome --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info --localstatedir=[[localstatedir]]</macro>
+        <macro id="docdir">/opt/gnome/doc</macro>
+        <macro id="infodir">/opt/gnome/info</macro>
+        <macro id="install">${MAKE} -e install; unset DESTDIR; ${MAKE} install</macro>
+        <macro id="ldconfig">/sbin/true</macro>
+        <macro id="localstatedir">/var/opt/gnome</macro>
+        <macro id="mandir">/opt/gnome/man</macro>
+        <macro id="prefix">/opt/gnome</macro>
+        <macro id="sd_machine_type">*</macro>
+        <macro id="sd_os_release">?.11.*</macro>
+        <macro id="sd_os_version">*</macro>
+        <macro id="so">sl</macro>
+        <macro id="sysconfdir">/etc/opt/gnome</macro>
+        <macro id="usrautogen">./autogen.sh --sysconfdir=/etc/opt/gnome --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info</macro>
+        <macro id="usrconfigure">./configure --sysconfdir=/etc/opt/gnome --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info</macro>
+        <macro id="usrinfodir">/opt/gnome/info</macro>
+        <macro id="usrinstall">${MAKE} -e install; unset DESTDIR; ${MAKE} install</macro>
+        <macro id="usrmandir">/opt/gnome/man</macro>
+        <macro id="usrprefix">/opt/gnome</macro>
+        <macro id="usrsysconfdir">/etc/opt/gnome</macro>
+        <macro id="x11appdefaults">/usr/dt/app-defaults</macro>
+        <macro id="x11configure">./configure --sysconfdir=/etc/opt/gnome --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info</macro>
+        <macro id="x11infodir">/opt/gnome/info</macro>
+        <macro id="x11install">${MAKE} -e install; unset DESTDIR; ${MAKE} install</macro>
+        <macro id="x11mandir">/opt/gnome/man</macro>
+        <macro id="x11prefix">/opt/gnome</macro>
+        <macro id="x11sysconfdir">/etc/opt/gnome</macro>
+        <path id="cc">/usr/bin/cc +DAportable</path>
+        <path id="cxx">/opt/aCC/bin/aCC -ext +p +DAportable</path>
+        <path id="default">/usr/local/bin:/usr/bin:/bin:/usr/sbin:/opt/gnome/bin:/opt/imake/bin:/usr/contrib/bin</path>
+        <path id="ld_library">/lib:/usr/lib:/opt/gnome/lib:/usr/local/lib</path>
+    </targetset>
+    <targetset>
+        <filter><i>hpux-11-hppa</i></filter>
+        <data id="cflags">+O2 -g</data>
+        <data id="sd_architecture">HP-UX_B.11.00_32/64</data>
+    </targetset>
+    <targetset>
+        <filter><i>hpux-11-ia64</i></filter>
+        <data id="cflags">-Wp,-H32768</data>
+        <data id="sd_architecture">HP-UX_B.11.20_IA</data>
+        <path id="cc">/usr/bin/cc</path>
+        <path id="cxx">/opt/aCC/bin/aCC -ext +p</path>
+    </targetset>
+    <targetset>
+        <filter><i>hpux-11i-hppa</i></filter>
+        <data id="cflags">-Wp,-H32768</data>
+        <data id="sd_architecture">HP-UX_B.11.11_32/64</data>
+    </targetset>
+
+    <targetset>
+        <filter><i>irix</i></filter>
+        <macro id="autogen">./autogen.sh --sysconfdir=/etc/gnome --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info</macro>
+        <macro id="configure">./configure --sysconfdir=/etc/gnome --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info</macro>
+        <macro id="docdir">/usr/doc</macro>
+        <macro id="infodir">/opt/gnome/info</macro>
+        <macro id="install">${MAKE} install sysconfdir=${DESTDIR}/etc/gnome prefix=${DESTDIR}/opt/gnome mandir=${DESTDIR}/opt/gnome/man infodir=${DESTDIR}/opt/gnome/info</macro>
+        <macro id="ldconfig">/bin/true</macro>
+        <macro id="mandir">/opt/gnome/man</macro>
+        <macro id="prefix">/opt/gnome</macro>
+        <macro id="sysconfdir">/etc/gnome</macro>
+        <macro id="usrautogen">./autogen.sh --sysconfdir=/etc/gnome --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info</macro>
+        <macro id="usrconfigure">./configure --sysconfdir=/etc/gnome --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info</macro>
+        <macro id="usrinfodir">/opt/gnome/info</macro>
+        <macro id="usrinstall">${MAKE} install sysconfdir=${DESTDIR}/etc/gnome prefix=${DESTDIR}/opt/gnome mandir=${DESTDIR}/opt/gnome/man infodir=${DESTDIR}/opt/gnome/info</macro>
+        <macro id="usrmandir">/opt/gnome/man</macro>
+        <macro id="usrprefix">/opt/gnome</macro>
+        <macro id="usrsysconfdir">/etc/gnome</macro>
+        <macro id="x11appdefaults">/usr/lib/X11/app-defaults</macro>
+        <macro id="x11configure">./configure --sysconfdir=/etc/gnome --prefix=/opt/gnome --mandir=/opt/gnome/man --infodir=/opt/gnome/info</macro>
+        <macro id="x11infodir">/opt/gnome/info</macro>
+        <macro id="x11install">${MAKE} install sysconfdir=${DESTDIR}/etc/gnome prefix=${DESTDIR}/opt/gnome mandir=${DESTDIR}/opt/gnome/man infodir=${DESTDIR}/opt/gnome/info</macro>
+        <macro id="x11mandir">/opt/gnome/man</macro>
+        <macro id="x11prefix">/opt/gnome</macro>
+        <macro id="x11sysconfdir">/etc/gnome</macro>
+        <path id="cc">/usr/local/bin/gcc</path>
+        <path id="cxx">/usr/local/bin/g++</path>
+        <path id="default">/usr/local/bin:/usr/freeware/bin:/usr/bin:/bin:/usr/sbin:/usr/bin/X11:/opt/gnome/bin</path>
+        <path id="ld_library">/lib32:/usr/lib32:/opt/gnome/lib32</path>
+    </targetset>
+    <targetset>
+        <filter><i>irix-65-mips3</i></filter>
+        <data id="cflags">[[cflags]] -mips3</data>
+    </targetset>
+
+</conf>

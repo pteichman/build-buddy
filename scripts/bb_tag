@@ -1,0 +1,182 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: bb_tag 3068 2005-12-22 03:41:13Z v_thunder $
+
+=pod
+
+=head1 NAME
+
+B<bb_tag> - add or remove filenames for bb_regenerate to work on
+
+=head1 SYNPOSIS
+
+ bb_tag [[-a] [-r] <file1> [[file2] file3 [...]]]
+
+=head1 DESCRIPTION
+
+B<bb_tag> helps you maintain a list of files that is to be used by
+B<bb_regenerate> when creating patches.  This list is, by default,
+kept in a file called F<files-to-diff>, which lives in the same
+directory where the F<build-buddy.conf> file is located.
+
+The F<files-to-diff> file contains one filename per line, relative
+to the toplevel directory of the unpacked source.  E.g., if the
+F<foo> file was added insode the F<bar> directory in the source,
+then the F<files-to-diff> file should contain a line with F<bar/foo>
+in it.
+
+The default behavior of B<bb_tag> is to list all filenames currently
+scheduled for inclusion in the patch regeneration.  The B<-a> (or
+B<--add>) flag can be used to insert a new entry, and the B<-r> (or
+B<--remove>) flag can be used to remove one.  Multiple files can
+be specified when these flags are used.
+
+Take care not to use relative paths that go up in the directory tree
+(i.e., don't use ".." anywhere), as this is not supported.
+
+Also, note that B<bb_tag> does not verify that files that you are
+inserting exist.  If you add a nonexistent file, it simply won't be
+included in the patch.  Moreover, adding directories is untested.
+
+=cut
+
+########################################################################
+
+use strict;
+use Cwd;
+use File::Basename;
+
+use FindBin;
+use lib "$FindBin::RealBin/../lib";
+
+use Ximian::Util ':all';
+
+########################################################################
+
+my $progname = basename $0;
+my $source = "";
+my $workdir = "";
+my $moduledir = "";
+my $prefix = "";
+
+########################################################################
+#
+# Begin main block
+#
+
+sub usage {
+    print STDERR <<EOF;
+
+Usage: ${progname} [[-a] [-r] <file1> [[file2] file3 [...]]]
+
+More documentation on this program is embedded in POD form.  Run
+"perldoc ${progname}" to see it.  Bug reports should be directed to:
+<URL:https://chernobyl.ximian.com/enter_bug.cgi?product=build-buddy>.
+
+EOF
+    exit 1;
+}
+
+my %args;
+parse_args
+    (\%args,
+     [
+      {names => ["help", "h", "?", ""], run => \&usage},
+      {names => ["add",           "a"], default => 0},
+      {names => ["remove",        "r"], default => 0},
+      {names => ["sourcedir",     "d"], type => "=s", default => "src"},
+      {names => ["mod_conf_file", "f"], type => "=s", default => "build-buddy.conf"},
+      {names => ["file_list",     "l"], type => "=s", default => "files-to-diff"},
+     ]);
+$workdir = $args{sourcedir};
+
+die "You must provide some file names to add/erase from the list.\n"
+    if (($args{add} or $args{remove}) and !@ARGV);
+
+pushd ".." until (-f $args{mod_conf_file} or "/" eq getcwd);
+die "Build conf file not found.\n" if ("/" eq getcwd);
+$moduledir = getcwd;
+popd for (0 .. push_count ());
+
+opendir SOURCEDIR, "$moduledir/$workdir";
+$source = $_ foreach (grep (!m/^\.+$/, readdir SOURCEDIR));
+close SOURCEDIR;
+
+$prefix = getcwd . "/";
+$prefix =~ s/^$moduledir\/$workdir\/$source[\/]*//;
+
+if ($args{remove}) {
+    open LIST, "$moduledir/$args{file_list}"
+	or die "There are no files in the list to be diff'ed.\n";
+    open NEWLIST, ">$moduledir/$args{file_list}.new"
+	or die "Could not open temporary file.\"\n";
+
+    my $regex = "\Q";
+    $regex .= join ("\E|\Q", @ARGV);
+    $regex .= "\E";
+
+    my @list = <LIST>;
+    chomp @list;
+    @list = grep (!m/$regex/, @list);
+
+    print NEWLIST "$_\n" foreach @list;
+    close NEWLIST;
+
+    system ("mv $moduledir/$args{file_list}.new $moduledir/$args{file_list}")
+	&& die "Could not move new file list into place: $!\n";
+} elsif ($args{add}) {
+    open LIST, ">>$moduledir/$args{file_list}";
+    print LIST "$prefix$_\n" foreach (@ARGV);
+} else {
+    open LIST, "$moduledir/$args{file_list}"
+	or die "There are no files in the list to be diff'ed.\n";
+    print "Files to be diff'ed:\n";
+    print "--------------------\n";
+    print while (<LIST>);
+}
+close LIST;
+
+
+__END__
+
+=pod
+
+=head1 OPTIONS
+
+=over 4
+
+=item -a
+
+Add files to the list.
+
+=item -r
+
+Remove files from the list.
+
+=back
+
+=head1 AUTHOR
+
+Dan Mills <thunder@ximian.com>.
+
+=head1 COPYRIGHT
+
+Copyright 2000-2001 Ximian, Inc. <distribution@ximian.com>.  All
+rights reserved.
+
+=cut

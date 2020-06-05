@@ -1,0 +1,12 @@
+<!-- DTD for product groups, with dependencies -->
+
+<!ELEMENT product (depends_on,modules)>
+<!ELEMENT depends_on (i+)>
+<!ELEMENT modules (module+)>
+<!ELEMENT module (name,location,platforms,snapshot,deps?)>
+<!ELEMENT name (#PCDATA)>
+<!ELEMENT location (#PCDATA)>
+<!ELEMENT platforms (#PCDATA)>
+<!ELEMENT deps (i+)>
+<!ELEMENT i (#PCDATA)>
+<!ELEMENT snapshot (#PCDATA)>

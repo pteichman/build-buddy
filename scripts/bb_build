@@ -1,0 +1,840 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: bb_build 3080 2006-01-05 01:10:21Z v_thunder $
+
+# TODO:
+# Make bb_build operations Ximian::BB::Plugin files
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||""); $My::bin = $My::bin;
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+use strict;
+use POSIX;
+use IO::File;
+use File::Basename;
+use File::Copy;
+use File::Find;
+
+use Ximian::Dep ':all';
+use Ximian::Util ':all';
+use Ximian::Sighandler;
+use Ximian::BB::Globals;
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Target ':all';
+use Ximian::BB::Macros ':all';
+use Ximian::BB::Module ':all';
+use Ximian::BB::Plugin ':all';
+use Ximian::BB::Env ':all';
+use Ximian::XML::Simple;
+
+########################################################################
+
+my $progname = basename $0;
+my @start_times = ();
+my $clock_speed = sysconf(_SC_CLK_TCK); # for times() output
+my %operations;  # all possible operations and tasks
+my @operation_list; # list of names of operations to run
+my @deferred_tasks; # for use when parsing the operations/tasks
+my %plugins;
+my %data;
+
+########################################################################
+
+sub usage {
+    my ($list_ops) = @_;
+    print <<EOF;
+Usage: $progname [-qxvrecLCRPDz] [-s module] [-o operation] -p product-definition 
+         [module-1] [module-2] [module-3]
+EOF
+    if ($list_ops) {
+        load_plugins ($_) foreach (split ':', $data{plugindir});
+        %plugins = get_plugins;
+        populate_operations ();
+        list_operations ();
+    }
+    exit 1;
+}
+
+parse_args_set (\%data, "base");
+parse_args
+    (\%data,
+     [
+      {names => ["help", "usage", "h", "?", ""], run => \&usage},
+      {names => ["list_ops",     "H"], default => 0},
+      {names => ["use_existing", "e"], default => 0},
+      {names => ["backwards",    "B"], default => 0},
+      {names => ["do_left",      "L"], default => 0},
+      {names => ["do_center",    "C"], default => 0},
+      {names => ["do_right",     "R"], default => 0},
+      {names => ["log_cleanup"      ], type => "!",  default => 1},
+      {names => ["logdir",       "l"], type => "=s", nodefault => 1},
+      {names => ["operations",   "o"], type => "=s", default => "build"},
+      {names => ["start_at",     "m"], type => "=s", default => ""},
+      {names => ["project",      "p"], type => "=s", default => "project.conf"},
+      {names => ["timestamp"        ], type => "=s", default => ($ENV{TIMESTAMP} || time ())},
+      {names => ["on_error"         ], type => "=s", default => "abort"},
+      {names => ["ignore_missing"   ], type => "!",  default => 0},
+      ]);
+
+# Default is -C
+$data{do_center} = 1 unless ($data{do_left} or $data{do_center} or $data{do_right});
+
+# Get all the system and build information
+
+my $bbconf = get_bb_conf ();
+my $confdirs_ref = $bbconf->{dirs}->{config}->{i};
+@Ximian::BB::Globals::confdirs = macro_replace ($confdirs_ref, [$bbconf]);
+
+my ($packsys, $target) = $data{target}?
+    split (':', $data{target}) : detect_target ();
+$Ximian::BB::Globals::packsys = $packsys;
+$Ximian::BB::Globals::target = $target;
+
+my $osconf = get_os_conf ();
+my $pconf = get_project_conf ($data{project});
+
+$Ximian::BB::Globals::confs = [$pconf, $osconf, $bbconf];
+
+parse_args
+    (\%data,
+     [
+      {names => ["plugindir"         ], type => "=s", default => get_dir ("plugindir")},
+      {names => ["archivedir"        ], type => "=s", default => get_dir ("archivedir")},
+      {names => ["src_archivedir"    ], type => "=s", default => get_dir ("src_archivedir")},
+      ]);
+$data{$_} =~ s{/$}{} foreach (qw/archivedir src_archivedir plugindir/);
+
+load_plugins ($_) foreach (split ':', $data{plugindir});
+%plugins = get_plugins;
+
+########################################################################
+
+usage ("list_ops") if $data{list_ops};
+
+populate_operations ();
+foreach my $op (split /,/, $data{operations}) {
+    unless (exists $operations{$op}) {
+        reportline (1, "Invalid operation \"$op\".  Use -H to list operations.");
+        exit 1;
+    }
+    push @operation_list, $operations{$op};
+}
+
+umask 022;
+
+# Set up signal handlers for clean exit.
+$SIG{INT} = $SIG{TERM} = \&Ximian::Sighandler::std_exit_handler;
+
+# Turn off buffering on stdin/stdout for happier logging
+STDIN->autoflush(1);
+STDOUT->autoflush(1);
+
+env_cleanup ();
+
+@start_times = POSIX::times(); # Start the stopwatch
+
+########################################################################
+
+$data{logdir} = get_dir ("logdir") unless defined $data{logdir};
+if ($data{logdir}) {
+    $data{logdir} = rel2abs $data{logdir};
+    reportline (2, "Logging to \"$data{logdir}\"");
+    my @oldlogs = dirgrep {m/^\d+-.+$/ or m/^\.count/} $data{logdir};
+    if (@oldlogs and $data{log_cleanup}) {
+        reportline (3, "Cleaning up old logs...");
+        unlink "$data{logdir}/$_" foreach (@oldlogs);
+    }
+}
+
+reportline (4, "$progname: Building for $Ximian::BB::Globals::target");
+my $marked = {};
+
+my $build_world = 1;
+foreach my $m (grep {!/^@/} @ARGV) {
+    die "Could not find module $m.\n" unless exists $pconf->{module}->{$m};
+    $build_world = 0;
+}
+
+# Change the module structures to the way Ximian::Dep wants them
+while (my ($name, $m) = each %{$pconf->{module}}) {
+    $m->{name} = $name;
+    $m->{dependency_names} = [];
+    if (exists $m->{deps} and exists $m->{deps}->{i}) {
+        $m->{dependency_names} = $m->{deps}->{i};
+    }
+}
+
+########################################################################
+
+my @modules = @{resolve_dependencies ($pconf->{module})};
+
+if ($build_world) {
+    reportline (3, "$progname: Building all modules");
+    mark_all ($pconf->{module}, "center", 1);
+    mark_all ($pconf->{module}, "process", 1);
+} else {
+    $marked->{center} = mark_center ($pconf->{module}, @ARGV);
+    $marked->{left} = mark_left ($marked);
+    $marked->{right} = mark_right ($marked);
+    mark_process ($marked);
+}
+
+foreach my $m (grep {/^@(.*)/; $_ = $1} @ARGV) {
+    reportline (3, "Ignoring module \"$m\"");
+    $pconf->{module}->{$m}->{process} = 0;
+    $pconf->{module}->{$m}->{center} = 0;
+}
+
+unless ($data{start_at} eq "") {
+    foreach my $module (@modules) {
+        last if ($module->{name} eq $data{start_at});
+        $module->{process} = 0;
+    }
+}
+
+log_oper ("", "modules", \&print_mark_list, \@modules, $marked);
+prepare_operations (@operation_list);
+my $success = process_modules (\@modules);
+cleanup_operations ($success, @operation_list);
+
+reportline (2, "Done");
+
+xml_status (\@modules);
+log_oper ("", "status", \&human_status, \@modules);
+
+exit !$success;
+
+########################################################################
+
+sub helper {
+    my ($handler, @args) = @_;
+    my $r = $handler->(@args);
+    reportline (1, "Warning: Handler failed with code \"$r\"") if $r;
+    return $r;
+}
+
+sub prepare_operations {
+    my (@operations) = @_;
+    reportline ({level=>4,nline=>0}, "Initializing requested operations... ");
+    foreach my $op (@operations) {
+        report (4, "$op->{name} ");
+        foreach my $h (@{$op->{handler_pre}}) {
+            my $r = log_oper ("init", "$h->{name}", \&helper, $h->{handler}, $pconf, \%data);
+            if ($r) {
+                reportline (1, "Could not initialize operation \"$h->{name}\"");
+                exit 1; # hmm - should we do something else?
+            }
+        }
+    }
+    reportline ({level=>4,tstamp=>0}, "");
+}
+
+sub process_module {
+    my ($module, $handler) = @_;
+    $module->{success} = 1;
+    reportline (3, "$progname: Processing $module->{name}");
+
+    my $loc = get_dir ("confsdir") . "/$module->{name}";
+    $loc = $module->{dir}->{moduledir} if $module->{dir}->{moduledir};
+    $loc = macro_replace ($loc);
+    $module->{dir}->{moduledir} = $loc;
+    unless (-d $loc) {
+        reportline (1, "Can't find location \"$loc\" for module \"$module->{name}\"");
+        $module->{success} = 0;
+        return 0;
+    }
+    reportline (3, "Location of module \"$module->{name}\" set to \"$loc\"");
+
+    pushd $loc;
+    my $conffile = ($module->{conffile} || $pconf->{conffile} || "build-buddy.conf");
+    my $conf = get_module_conf ($conffile) unless $module->{conf};
+    $conf->{topdir} = get_dir ("topdir");
+    $conf->{destdir} = get_dir ("tmpinstdir");
+    $conf->{builddir} = get_dir ("builddir");
+    $conf->{version} = make_version ($conf, $plugins{source});
+    $conf->{revision} = make_rev ($conf, $plugins{source});
+    $conf->{fullversion} = full_version ($conf);
+    $module->{conf} = $conf;
+
+    if ($data{use_existing} && is_module_installed ($module->{conf})) {
+        reportline (2, "$module->{name} is installed, skipping");
+        $module->{success} = 1;
+    } else {
+        reportline (3, "$module->{name}: Beginning operations");
+        foreach my $op (@operation_list) {
+            reportline (3, "$module->{name}: Running operation $op->{name}");
+            foreach my $h (@{$op->{handler_module}}) {
+                my $r = log_oper ($module->{name}, $h->{name},
+                                  \&helper, $h->{handler}, $module, \%data);
+                if ($r) {
+                    $module->{success} = 0;
+                    last if $data{on_error} ne "continue_module";
+                }
+            }
+        }
+    }
+    popd;
+    reportline (3, "$progname: Finished $module->{name}");
+    return $module->{success};
+}
+
+sub process_modules {
+    my ($modules) = @_;
+    my $success = 1;
+
+    reportline (4, "Executing requested operations:");
+
+    foreach my $module ($data{backwards} ? reverse @$modules : @$modules) {
+	if ($module->{process}) {
+	    my $ret = process_module ($module);
+	    unless ($ret) {
+                $success = $ret;
+		reportline (1, "Processing of $module->{name} failed");
+		if ($data{on_error} eq "abort") {
+		    reportline (1, "Aborting");
+                    popd;
+		    return 0;
+		} elsif ($data{on_error} eq "skip_dependents") {
+		    reportline (1, "Marking dependents as failure and continuing.");
+		    mark_dependents ($pconf->{module}, $module, "process", 0);
+		}
+	    }
+	}
+    }
+    reportline (4, "Finished executing operations");
+    return $success;
+}
+
+sub cleanup_operations {
+    my ($success, @operations) = @_;
+    reportline ({level=>4,nline=>0}, "Cleaning up requested operations... ");
+    foreach my $op (@operations) {
+        report (4, "$op->{name} ");
+        foreach my $h (@{$op->{handler_post}}) {
+            my $r = log_oper ("cleanup", $h->{name},
+                              $h->{handler}, $success, $pconf, \%data);
+            if ($r) {
+                reportline (1, "Could not cleanup operation \"$h->{name}\"");
+            }
+        }
+    }
+    reportline ({level=>4,tstamp=>0}, "");
+}
+
+########################################################################
+# Operation/Task-related functions
+
+sub matches_platform {
+    my $opts = shift;
+
+    if (exists $opts->{packsys}) {
+	return 0 if ($Ximian::BB::Globals::packsys ne $opts->{packsys});
+    }
+    if (exists $opts->{target}) {
+	return 0 if ($Ximian::BB::Globals::target !~ /$opts->{target}/);
+    }
+    return 1;
+}
+
+sub push_handler {
+    my ($list, $name, $handler) = @_;
+    if (isarray $handler) {
+        foreach my $h (@$handler) {
+            push @$list, {name => $h->{name}, handler => $h->{handler}};
+        }
+    } elsif ($handler) {
+        push @$list, {name => $name, handler => $handler};
+    }
+}
+
+sub register_operation {
+    my $oper = shift;
+
+    return 0 unless matches_platform ($oper);
+
+    $oper->{handler_pre} = [] unless $oper->{handler_pre};
+    $oper->{handler_module} = [] unless $oper->{handler_module};
+    $oper->{handler_post} = [] unless $oper->{handler_post};
+
+    foreach my $h (qw/pre module post/) {
+        next unless $oper->{$h};
+        push_handler ($oper->{"handler_$h"}, $oper->{name}, $oper->{$h});
+    }
+    $operations{$oper->{name}} = $oper;
+    reportline (4, "Registered operation \"$oper->{name}\"");
+    return 1;
+}
+
+sub register_task {
+    my $task = shift;
+
+    return 0 unless matches_platform ($task);
+
+    $task->{handler_pre} = [] unless $task->{handler_pre};
+    $task->{handler_module} = [] unless $task->{handler_module};
+    $task->{handler_post} = [] unless $task->{handler_post};
+
+    # Make sure we have all the operations we'll need
+    foreach my $name (@{$task->{operations}}) {
+        return 0 unless $operations{$name};
+    }
+
+    foreach my $name (@{$task->{operations}}) {
+        my $oper = $operations{$name};
+        push_handler ($task->{handler_pre}, "",
+                      $oper->{handler_pre});
+        push_handler ($task->{handler_module}, "",
+                      $oper->{handler_module});
+        push_handler ($task->{handler_post}, "",
+                      $oper->{handler_post});
+    }
+    $operations{$task->{name}} = $task;
+    return 1;
+}
+
+sub populate_operations {
+    foreach my $plugin (values %{$plugins{operations}}) {
+        foreach my $op (@{$plugin->{operations}}) {
+	    register_operation ($op)
+        }
+        foreach my $task (@{$plugin->{tasks}}) {
+	    push @deferred_tasks, $task;
+        }
+    }
+
+    while (@deferred_tasks) {
+	my $success = 0;
+	my @new_deferred_tasks = ();
+
+	while (my $task = pop @deferred_tasks) {
+	    push @new_deferred_tasks, $task unless ($success = register_task ($task));
+	}
+	unless ($success) {
+	    reportline (1, "There are dependency errors in the following tasks:");
+	    reportline (1, "* $_->{name}") foreach (@new_deferred_tasks);
+	    exit 1;
+	}
+	@deferred_tasks = @new_deferred_tasks;
+    }
+}
+
+sub list_operations {
+    print "\nAvailable operations:\n";
+    print "---------------------\n";
+
+    my @opers;
+    foreach my $oper (values %operations) {
+	my $desc = $oper->{description}?
+	    "\t$oper->{description}\n" : "\tNo description\n";
+	push @opers, line_up ("$oper->{name}", $desc, 16)
+    }
+    print sort @opers;
+}
+
+########################################################################
+# Categorization (left/right/center)
+
+sub center_helper {
+    my ($center, $node) = @_;
+
+    foreach my $dep (values %{$node->{sparse_dependencies}}) {
+	if (exists $dep->{right}) {
+	    $dep->{center} = 1;
+	    $center->{$dep->{name}} = $dep;
+	}
+	center_helper ($center, $dep);
+    }
+}
+
+# Mark the modules given as arguments and all the modules "between" them.
+
+sub mark_center {
+    my ($graph, @names) = @_;
+    my $center = {};
+
+    # The basic strategy - Modules are "between" other modules if they are 
+    # both to the right of one module and to the left of another module.
+    # So we mark all the modules to the right of each given module.  Then
+    # we mark all the modules to the left of each given module.  Anything with
+    # both marks is in the 'center' (along with the given modules).
+
+    # So, first we mark to the right
+    foreach my $name (@names) {
+	mark_dependents ($graph, $graph->{$name}, "right", 1);
+    }
+
+    # I lied.  We're not actually going to mark everything to the left then
+    # check for modules with both the left and right marks.  Instead, we
+    # collapse these steps together.
+    foreach my $name (@names) {
+	my $node = $graph->{$name};
+	$node->{center} = 1;
+	$center->{$name} = $node;
+	center_helper ($center, $node);
+    }
+    return $center;
+}
+
+sub mark_left_helper {
+    my ($left, $node) = @_;
+
+    foreach my $dep (values %{$node->{sparse_dependencies}}) {
+	unless (exists $dep->{center}) {
+	    $dep->{left} = 1;
+	    $left->{$dep->{name}} = $dep;
+	    mark_left_helper ($left, $dep);
+	}
+    }
+}
+
+# Mark the dependencies of the center modules
+sub mark_left {
+    my ($marked) = @_;
+    my $left = {};
+
+    foreach my $node (values %{$marked->{center}}) {
+	mark_left_helper ($left, $node);
+    }
+    return $left;
+}
+
+sub mark_right_helper {
+    my ($right, $node) = @_;
+
+    foreach my $dep (values %{$node->{sparse_dependents}}) {
+	unless (exists $dep->{center}) {
+	    $dep->{right} = 1;
+	    $right->{$dep->{name}} = $dep;
+	    mark_right_helper ($right, $dep);
+	}
+    }
+}
+
+# Mark the dependents of the center modules
+sub mark_right {    
+    my ($marked) = @_;
+    my $right = {};
+
+    foreach my $node (values %{$marked->{center}}) {
+	mark_right_helper ($right, $node);
+    }
+    return $right;
+}
+
+
+sub mark_process {
+    my ($marked) = @_;
+
+    if ($data{do_left}) {
+	reportline (3, "Operating on the left");
+	foreach my $module (values %{$marked->{left}}) {
+	    $module->{process} = 1;
+	}
+    }
+
+    if ($data{do_center}) {
+	reportline (3, "Operating on the center");
+	foreach my $module (values %{$marked->{center}}) {
+	    $module->{process} = 1;
+	}
+    }
+
+    if ($data{do_right}) {
+	reportline (3, "Operating on the right");
+	foreach my $module (values %{$marked->{right}}) {
+	    $module->{process} = 1;
+	}	
+    }
+}
+
+########################################################################
+
+sub log_header {
+    my ($module, $oper) = @_;
+    my $h;
+    $h = "$oper" if $oper;
+    $h = "$module" if $module;
+    $h = "$module: $oper" if $module and $oper;
+    if ($h and $data{logdir}) {
+        reportline (2, $h);
+        reportline (2, "-" x length ($h));
+        print "\n";
+    } elsif ($h) {
+        reportline (2, "Executing: $h");
+    }
+}
+
+sub log_oper {
+    my ($module, $oper, $cb, @args) = @_;
+
+    unless ($data{logdir}) {
+        log_header ($module, $oper);
+        return $cb->(@args);
+    }
+
+    mkdirs $data{logdir};
+    my $n = next_logid $data{logdir};
+    die "$progname: Could not get next logid" unless $n >= 0;
+    my $file = "$data{logdir}/$n";
+    $file .= "-$module" if $module;
+    $file .= "-$oper" if $oper;
+
+    my ($oldout, $olderr);
+    open $oldout, '>&', STDOUT or die "Can't dup STDOUT: $!";
+    open $olderr, '>&', STDERR or die "Can't dup STDERR: $!";
+    close STDOUT;
+    close STDERR;
+
+    open STDOUT, '>', $file or die "Can't redirect STDOUT: $!";
+    open STDERR, '>&', STDOUT or die "Can't dup STDOUT: $!";
+    STDOUT->autoflush (1);
+    STDERR->autoflush (1);
+
+    log_header ($module, $oper);
+    my $ret = $cb->(@args);
+
+    close STDOUT;
+    close STDERR;
+    open STDOUT, '>&', $oldout or die "Can't dup \$oldout: $!";
+    open STDERR, '>&', $olderr or die "Can't dup \$olderr: $!";
+
+    return $ret;
+}
+
+sub print_mark_list {
+    my ($modules, $marked) = @_;
+
+    reportline (4, "Left modules: ");
+    reportline (4, "\t$_")  foreach (keys %{$marked->{left}});
+
+    reportline (4, "Center modules: ");
+    reportline (4, "\t$_")  foreach (keys %{$marked->{center}});
+
+    reportline (4, "Right modules: ");
+    reportline (4, "\t$_")  foreach (keys %{$marked->{right}});
+
+    reportline (2, "Modules to be processed:");
+    foreach (@$modules) {
+        reportline (2, "\t$_->{name}") if exists $_->{process};
+    }
+}
+
+sub xml_status {
+    my ($modules) = @_;
+
+    return unless $data{logdir};
+
+    my $xml = {target => $Ximian::BB::Globals::target,
+               module => []};
+    foreach my $module (@$modules) {
+        my $m = {id => $module->{name}};
+        $m->{attempted} = "no";
+        if ($module->{process}) {
+            $m->{attempted} = "yes";
+            $m->{success} = "no";
+            $m->{success} = "yes" if $module->{success};
+        }
+        push @{$xml->{module}}, $m;
+    }
+
+    mkdirs $data{logdir};
+    my $n = next_logid $data{logdir};
+    die "$progname: Could not get next logid" unless $n >= 0;
+
+    open STATUS, ">$data{logdir}/$n-xml-status" or return;
+    print STATUS XMLout ($xml);
+    close STATUS;
+}
+
+sub human_status {
+    my ($modules) = @_;
+    foreach my $module (@$modules) {
+        next unless $module->{process};
+        my $success = "failed";
+        $success = "ok" if $module->{success};
+        reportline (2, line_up ($module->{name}, $success, 40));
+    }
+}
+
+__END__
+
+=pod
+
+=head1 NAME
+
+bb_build - Build a module and its dependencies.
+
+=head1 SYNOPSIS
+
+bb_build [-qxvecLCRPDz] [-t target] [-m module] [-o operation] -p product-definition [I<module-1>] [I<module-2>]
+[I<module-3>]
+
+[-a archivedir] 
+
+=head1 DESCRIPTION
+
+bb_build is used to build a product.  Given a product definition and a
+set of modules, it will build the modules and their dependencies in
+the correct order.
+
+=head1 OPTIONS
+
+=over 4
+
+=item -v
+
+Be verbose.  This will cause bb_build to spit out more information,
+mostly for debugging purposes.
+
+=item -L -C -R
+
+Select the module sets to use.  You can select any combination of the
+three sets.  See L<MODULE SETS> for a description of the different
+module sets. The default setting is -LC.
+
+=item -P
+
+Install from packages if possible.  bb_build will look for suitable
+packages in $PACKAGEPATH [FIXME: name?] and install those.
+
+=item -o I<operation>
+
+Specify the operations to perform on the modules.  The currently
+available operations are 'build', which builds packages and installs
+them, 'install', which installs from existing packages, 'uninstall',
+which removes packages installed by the selected modules, and 'noop',
+which does nothing.  The default operation is 'build'.
+
+=item -p I<product-definition>
+
+Use the given product definition file.  See L<PRODUCT DEFINITION
+FILES> for a description of these files.
+
+=item -L
+
+Write logfiles instead of printing to stdout.  [This needs more
+documentation, because the logfile setup is pretty interesting (it
+writes different logs for each module, blah blah blah].
+
+=item -e
+
+Use existing packages if possible.  If a package is installed with the
+same version, revision, and epoch as listed in the helix-build.conf,
+the package will not be built.
+
+=item --on_error <action>
+
+This tells B<bb_build> what to do if a module fails to build.  The
+following actions are available:
+
+=over 4
+
+=item abort
+
+Stop all execution immediately.
+
+=item skip_dependents
+
+Don't try to build any of the failed module's dependents.  This is the
+default behavior.
+
+=item skip_module
+
+Skip the failed module, but continue building dependents.
+
+=item continue_module
+
+Proceed with the next operations for the failed module.
+
+=back
+
+=item I<module-n>
+
+Specify a module to build.  This module is used to calculate the
+Center set (see L<MODULE SETS> below).  If no modules are passed, the
+entire product will be built.
+
+If I<module-n> is preceded with a dash (-), it will excluded from any
+operations.
+
+=back
+
+The other options are [or should be] simply passed to bb_do.  See the
+bb_do documentation for a description of these items.
+
+=head1 ENVIRONMENT VARIABLES
+
+See the bb_do documentation for descriptions of the various
+environment variables used in build-buddy.
+
+=head1 MODULE SETS
+
+bb_build can operate on three different sets of modules, the Center,
+the Left, and the Right.
+
+The Center module set is defined as the modules listed on the command
+line and the dependencies between them.  This means that if you list
+oaf and gnome-vfs on the command line, GConf will be considered part
+of the center dependency set. The Left module set is defined as the
+modules that are depended on by the Center dependency set. The Right
+module set is defined as the set of modules that depend on the modules
+in the Center set.
+
+By default, bb_build operates on the Left and Center dependency sets,
+but you can specify an arbitrary collection of sets.
+
+For example, if you want to build oaf and gnome-vfs, but you don't
+want to build all of its dependencies, you would use the following
+command lines:
+
+S<C<bb_build -L -P oaf gnome-vfs>>
+S<C<bb_build -C oaf gnome-vfs>>
+
+In these two commands, the center set is oaf/gconf/gnome-vfs, and the
+left set is all the dependencies of oaf, gconf, and gnome-vfs.  The
+first command line installs the members of the Left set from packages,
+and the second command line builds the Center set from source.
+
+=head1 PRODUCT DEFINITION FILES
+
+bb_build uses product definition files to control its behavior.  See
+the bb-config-files documentation (in the doc/)
+
+=head1 AUTHOR
+
+Dave Camp <dave@ximian.com>
+
+=head1 COPYRIGHT
+
+Copyright 2000-2001 Ximian, Inc. <distribution@ximian.com>.  All
+rights reserved.
+
+=cut

@@ -1,0 +1,137 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: bb_node 3042 2005-10-17 22:29:01Z v_thunder $
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||""); $My::bin = $My::bin;
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+use strict;
+use HTTP::Daemon;
+use HTTP::Status;
+use HTTP::Response;
+
+use Ximian::Util ':all';
+
+my %args;
+
+########################################################################
+
+sub usage {
+    print STDERR <<EOF;
+usage: $My::bin [-p port] [-w workdir]
+EOF
+    exit 1;
+}
+
+parse_args_set (\%args, "base");
+parse_args
+    (\%args,
+     [
+      {names => ["help", "h", "?", ""], run => \&usage},
+      {names => ["port",             "p"], type => "=i", default => 9001},
+      {names => ["pidfile"              ], type => "=s", default => ""},
+      {names => ["workdir",          "w"], type => "=s", default => "."},
+     ]);
+
+########################################################################
+
+sub gen_dir_response {
+    my ($base, $path) = @_;
+    my $r = HTTP::Response->new (RC_OK);
+    $r->content (gen_dir_html ($base, $path));
+    return $r;
+}
+
+sub gen_dir_html {
+    my ($base, $path) = @_;
+    $path = "" if $path eq "/";
+    my @files = dirgrep {!/^\./} $base . $path;
+    @files = map {"<li><a href=\"$path/$_\">$_</a></li>\n"} @files;
+    return <<END;
+<html>
+<body>
+<ul>
+@files</ul>
+</body>
+</html>
+END
+}
+
+my $d = HTTP::Daemon->new (LocalPort => $args{port})
+   or die "Could not start daemon on port $args{port}";
+reportline (2, "Accepting connections at @{[$d->url]}");
+
+$SIG{INT} = sub { close $d; exit 0 };
+
+system ("echo \"$$\" >$args{pidfile}") if $args{pidfile};
+
+while (my $c = $d->accept) {
+    while (my $r = $c->get_request) {
+        if ($r->method eq 'GET') {
+            reportline (3, "GET: @{[$r->url->path]}");
+            $c->force_last_request; # hack for wget
+            my $base = $args{workdir};
+            my $path = $r->url->path;
+            if (-d $base . $path) {
+                $c->send_response (gen_dir_response ($base, $path));
+            } else {
+                $c->send_file_response ($base . $path);
+            }
+        } else {
+            reportline (2, "Request for method '@{[$r->method]}' denied");
+            $c->send_error (RC_FORBIDDEN)
+        }
+    }
+    $c->close;
+    undef ($c);
+}
+
+exit 0;
+
+__END__
+
+=pod
+
+=head1 NAME
+
+B<bb_node_web> - mini web server
+
+=head1 SYNPOSIS
+
+ bb_node_web -p [port] [-w workdir]
+
+=head1 DESCRIPTION
+
+B<bb_node_web> is a small web server based on HTTP::Daemon which runs
+from each node, and is used to transfer files from the node to the
+client.
+
+=cut

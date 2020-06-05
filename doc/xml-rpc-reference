@@ -1,0 +1,462 @@
+The Build Buddy XML-RPC Interface
+=================================
+
+This document is aimed at developers who wish to write XML-RPC
+applications that use the BB daemons.
+
+If you think these docs are unclear in any way, or wish further
+explanation of some topic, please mail thunder@ximian.com.
+
+Overview
+--------
+
+There are four types of BB daemons:  logger, authserver, master, and
+node.  There is one node on each build machine.  There are many nodes,
+but only one of each logger, authserver, and master, and all three
+should run on the same box.  It is not recommended to run a node on
+the same box as well, although it may.
+
+* The node is responsible for unpacking jails, building software, and
+  reporting itself to the logger.
+
+* The master is responsible for the scheduling of jobs, and for
+  presenting a unified interface for all the available nodes.
+
+* The logger is responsible for logging (duh) build information from
+  the master and nodes.
+
+* The authserver is responsible for authorizing or denying various
+  requests.
+
+Developer Notes
+---------------
+
+* Bools
+
+Build Buddy is written in Perl, which has no bool type.  Because of
+this, what the code tests is for the truth value of the argument.  A
+value of 0, or an empty string, represent false.  Anything else is
+true.
+
+* Testing
+
+When writing code that uses the BB daemons, it may be useful to not
+background the daemons (which the /etc/init.d scripts do).  The
+daemons can be easily run, each one in a terminal, with no
+command-line arguments.  e.g., "sudo /usr/bin/bb_master" would start
+the master.  The node can be run on the same machine, but you'll need
+to change the port.
+
+There is a notorious problem worthy of note:  when the permissions of
+the outputdir (e.g., /nfs/release/build-daemon) are not set exactly
+right, the node will not be able to create and use the job directory
+there.  However, this directory is where the log files are kept--and
+thus no logs will be available to report the problem.  When the
+logging directory can't be made, BB will report this using syslog.
+Check /var/log/messages for the errors!
+
+If you plan on changing Build.pm, you might want to run the node in
+synchronous mode.  Note that this is not the same as submitting a job
+with --synchronous in bb_client--that would only simulate sync
+behavior by polling.
+
+* Adding to the API
+
+In general, adding to the node/master's XML-RPC API and tying that to
+the WebUI/bb_client requires changes in the following places, in
+addition to the node/master:
+
+(1) This document:  All changes must be well-documented.
+(2) conf/sql/log.sql:  The DB schema will need to change to allow you
+    to save the settings with saved jobs.
+(3) lib/Ximian/BB/DB/*:  Edit/add any classes to match the schema
+    changes.
+(4) lib/Ximian/BB/DB/SavedJob.pm:  This package contains loading and
+    saving routines to get the data in/out of the database to/from
+    perl structures that match what will be sent via xml-rpc.
+(5) web/webroot/submit/*:  Edit/add the options here.  In particular,
+    web/webroot/submit/new.html:  Has any global options, and
+    web/webroot/submit/update_cache.pl:  Will need to know if you add
+    					 any new arrays and such.
+(6) scripts/bb_client:  Should keep feature-parity with the webui.
+(7) scripts/bb_snapshot:  Should keep feature-parity with the webui.
+(8) scripts/bb_schema_upgrade*:  Change or make a new script for
+    updating BB installs.
+
+Common Interfaces
+-----------------
+
+Some XML-RPC functions are common to all the daemons.  These are:
+
+ping
+    Pings the daemon.  Returns 1.
+
+dumper
+    The dumper function simply prints to standard out all the
+    arguments received.  It does this using the Perl Data::Dumper
+    module.  Returns 1.
+
+The Node
+--------
+
+By default, the node runs on port 8080.
+
+The node exports the following functions over XML-RPC:
+
+build_simple
+    Initiates a build on the node.  The arguments are as follows:
+
+    owner
+        String containing the BB user name that will own this job.  By
+        default, the users "web" and "client" are created, both with
+        empty passwords.
+
+    password
+        String containing the password of the owner.  If none is
+        required, this should be an empty string.
+
+    extra_args
+        Hash containing the following:
+
+        debug
+            Debug level to enable extra information logging.
+
+        target
+            Target string to be built on.
+
+        create_tarballs
+            Boolean, whether to create tarballs out of packages or
+            not.
+
+        remove_jail
+            Boolean, whether to remove the jail after the job has
+            finished.  If the job succeeded, the jail is removed
+            immediately.  If the job failed, metadata is added to the
+            jail to mark it as unavailable, but it is not removed (to
+            allow for manual debugging).
+
+        jail_not_reapable
+            Boolean.  If set, the jail will be marked as not reapable
+            after the job has finished.
+
+        channel
+            Channel string, for adding packages to a channel directly
+            (without going through the pipeline).
+
+        pipeline_channel
+            Channel string, for submitting packages to QA through
+            the release pipeline.
+
+        push
+            Array of strings.  Each string is a channel name to push
+            to at the end of the build, if it succeeds.
+
+        submit_targets
+            Array of targets to submit to.  By default (if empty) the
+            built-on target is submitted to.
+
+        ignore_submission_errors
+            Boolean.  If true, ignore any errors during the
+            submission step (and a) keep submitting, b) mark the job
+            as succeeded).
+
+        ignore_build_errors
+            Boolean.  If true, ignore any errors while building and
+            packaging each module, and simply skip to the next module
+            to be built.
+
+        rcd_mcookie
+            Contents of the RCD mcookie file to put in the jail.
+
+        rcd_partnernet
+            Contents of the RCD partnernet file to put in the jail.
+
+        jail_grep_queries
+	    Array of hashes, each containing arguments for
+	    Ximian::BB::JailUtil::jail_grep.  These arguments are:
+
+	    metadata_id
+	        Name of the metadata id (file) to grep in.  Defaults
+	        to "main".
+
+	    key
+	        Assumes a fairly flat metadata file, and matches the
+	        tag named <key> under the root.  For example, setting
+	        key to "target" would match <metadata><target /></metadata>.
+
+	    xpath
+	        Alternative to key.  An XPath query pointing to one or
+	        more nodes to grep in.  If multiple nodes are matched,
+	        the query is considered to match if any of the nodes
+	        match (that is, an OR is performed).  Note that with
+	        XPath you may need to specify the root node as well,
+	        which is always /metadata.  So an XPath statement to
+	        match the same "target" key above would be
+	        "/metadata/target".
+
+	    text
+	        Text to match.  Must be an exact match, no regular
+	        expressions involved.  Those may be added later, as a
+	        separate option.
+
+        extra_deps
+            List of additional dependencies to resolve before building.
+
+        modules
+            Array containing one or more hashes, each as follows:
+
+            name
+                Name of the module.  This must be the name of the
+                directory the ximian-build.conf for this module lives
+                in.  If `conf' is defined, however, this name does not
+                matter.
+
+            version
+	        Branch or revision number of the ximian-build.conf in
+		cvs to be checked out.  If ommitted, it checks out the
+		latest version.
+
+	    conf
+		String containing the entire text of a
+		ximian-build.conf to be built.  If this hash key is
+		used, none of the others matter (though name is still
+		used for display purposes).
+
+	    cvsroot
+		If unused, 'distro@cvs:/cvs/helix-gnome' is used.
+
+	    cvsmodule
+		Parent CVS module containing all the BB module
+		directories.  That is, BB checks out cvsmodule/name,
+		which must contain a ximian-build.conf.
+
+	    channel
+                Like 'channel' argument above, but only applies to
+                this module.  Has precedence over the above arg.
+
+	    pipeline_channel
+                Like 'pipeline_channel' above, but only applies to
+                this module.  Has precedence over the above arg.
+
+	rcd
+	    Hash containing the following:
+
+            var
+                Hash mapping preference names to values.
+
+	    services
+	        Array of hashes, each with the following keys:
+
+		url
+		    URL of the service (string).
+
+		activations
+		    Hash mapping id's (Email addresses for RCX), to
+		    arrays of RCX keys to be activated.
+
+            subscribe
+                Array containing hashes, where each one has keys:
+
+                name
+                    Maps to the channel name to subscribe.
+
+                update
+                    Bool.  True if the channel should be updated.
+
+        env
+            Hash containing the following:
+
+            var
+                Hash mapping env variables to their values.
+
+    This function returns the job ID number of the newly created job,
+    or 0 in case of error.
+
+load
+    Takes no arguments.
+
+    Returns a hash containing:
+
+    disk
+        Amount of free HD space on the node, in KB.
+    cpu
+        An array containing three float values for the CPU load (5min,
+        10min, and 15min, respectively).
+
+targets
+    Takes no arguments.
+
+    Returns a list of strings, each string being a supported target of
+    the node.  e.g., "redhat-62-i386", or "hpux-11a-hppa".
+
+unpack_jails
+    Takes a single (optional) hash.  The following keys can be set:
+
+    targets
+        Array of target strings.  If given, will unpack jails for
+        these targets only.  Otherwise, it will unpack jails for all
+        possible targets.
+    sync
+        Bool.  Whether to unpack the jails synchronously or not.
+    force
+        Bool.  Unpack jails even if there is a ready-to-go jail
+        for that target already.
+
+    Returns 1 on success.  Raises an exception on error.  If the
+    'sync' option is not given and an error occurs during jail unpack
+    (i.e., after the xml-rpc call has returned), the error will be
+    printed out to stdout.
+
+shutdown
+    Takes no arguments.
+
+    Shuts down the node.
+
+restart
+    Takes no arguments.
+
+    Shuts down the node and restarts it.
+
+nodeid
+    Takes no arguments.
+
+    Returns the nodeid.
+
+The Master
+----------
+
+The master behaves like a node, with the following differences:
+
+* There is no load function.
+* shutdown & restart are not available (yet)
+* The targets function returns the combined targets of all currently
+  running nodes.
+* build_simple schedules the job to a node instead of building it.
+* build_simple accepts two extra keys:
+
+min_disk
+    Do not consider nodes with less free HD space than this, in bytes.
+
+max_jobs
+    Do not consider nodes running this many or more jobs already.
+
+Note that the port it runs on is *unchanged*.  If you intend to run
+both a master and a node on the same machine, then you'll need to make
+sure you run that node on a different port (which is easier than
+running the master on a different port).
+
+It also exports the following functions:
+
+node_register
+    Registers a node.  Takes arguments host, and port.
+
+    Returns the nodeid.
+
+node_unregister
+    Unregisters a node.  Takes arguments host ane port.
+
+    Returns 0.
+
+
+The Logger
+----------
+
+By default, the logger runs on port 8081.
+
+job_start
+    Logs a new job.  Takes the following arguments:
+
+    nodeid
+        ID of the node running this job.
+
+    owner
+        BB username owning this job.
+
+    password
+        Password of the owner.
+
+    target
+        Target string.
+
+    modules
+        list of module name strings.
+
+    args
+        Free-form key-value hash.  Can be used to store any data
+        whatsoever.
+
+    Returns a jobid.
+
+job_finish
+    Completes a job.  Takes the following arguments:
+
+    job
+        Job ID from job_start.
+    success
+        One of the strings: "succeeded", "failed", or "aborted".
+    description
+        String for further explanation.
+    args
+        Key-value hash, like the one in job_start.
+
+    Returns 1 on success.
+
+
+The Authserver
+--------------
+
+By default, the logger runs on port 8090.
+
+authenticate
+    Determines if a user/password pair match.  Will raise an exception
+    (die) on error.  Takes these arguments:
+
+    user
+        String of the username.
+
+    password
+        String of the (plaintext) password.
+
+    Returns an authentication key (token).
+
+authorize
+    Determines if a key, (e.g., a key given by authenticate()), is
+    valid, and allows the user to perform a given task, as defined by
+    the capabilities table.  Will raise an exception (die) on error.
+    Takes two arguments:
+
+    authkey
+        String of the authentication key.
+
+    capability
+        String of the capability name.
+
+    Returns 1 on success.
+
+job_owner
+    FIXME
+
+new_user
+    Creates a new user in the DB.
+
+    authkey
+        String of the authentication key (of a user authorized to
+        create users).
+
+    login
+        User name (string).
+
+    password
+        Password (string).
+
+change_password
+    Changes a user's password used to authenticate.
+
+    authkey
+        Valid auth key for the user to be removed.
+
+    current
+        User's current password.
+
+    new
+        User's new password.

@@ -1,0 +1,2268 @@
+2006-01-04  Dan Mills  <thunder@ximian.com>
+
+	* BB.pm: Up version to 1.8.1.
+
+	* lib/Ximian/Util.pm (pushd): Fix when directory to pushd to
+	doesn't exist.
+
+	* lib/Ximian/BB/Module.pm (make_version): Return "" instead of
+	undef when a version can't be determined (e.g., snapshot mode is
+	on, but no tarball has been unpacked yet).
+
+	* scripts/bb_node: Remove methods for getting base64-encoded logs
+	and files; we use http and wget now for that.
+
+	* scripts/bb_node_http: Small fix to make links in the base url
+	work correctly.
+
+	* plugins/operations/TarballPkgBBOper.pm: Add new tarpkg
+	operations for packing up a module and repackaging it elsewhere.
+
+	* plugins/source/Checkout.pm: Slightly nicer error reporting.
+
+2005-12-22  Dan Mills  <thunder@ximian.com>
+
+	* Makefile.PL: Remove disted tarball before making dist, or gzip
+	  will complain and ask interactively.
+
+	* MANIFEST.SKIP: Don't ignore lib/Ximian/BB.pm, even though it is
+	  a symlink, we do want it disted or things break later.
+
+	* MANIFEST: Add some docs, and the ProjectSource.pm bb_build
+	  operations module.
+
+	* plugins/operations/RcdOperations.pm:
+	* plugins/operations/ProjectSource.pm:
+	* plugins/operations/BuildBBOper.pm:
+
+	  Fix operation names.
+
+	* plugins/operations/BasicBBOper.pm: Fix listing operations and
+	  rename them to info:*
+
+	* scripts/bb_build: Remove code to checkout/update project
+	  sources.  That is in an operation now.
+
+	* plugins/source/Checkout.pm (snapshot_version): When a tarball
+	  couldn't be detected, and the conf doesn't define a version,
+	  return "" instead of undef.
+
+	* plugins/operations/RceSubmitOperations.pm: Fix package name.
+
+	* plugins/operations/ProjectSource.pm: bb_build pperations for
+	  checking out/updating conf files or global project sources.
+
+	* lib/Ximian/Util.pm (popd): Fix error when popd'ing past the
+	  initial directory.
+
+	* doc/os.conf.sample2: Another sample os.conf.
+
+	* conf/os.conf: Remove old targets.  Always set ACLOCAL_FLAGS,
+	  CFLAGS, etc to add the prefix, in case it is being
+	  overridden.
+
+	* conf/distro-detect.conf: Fix suse 10 targets to be suse-100-*
+
+	* build-buddy.conf: Tarball is build-buddy-.*.tar.gz now.
+
+	* MANIFEST: Add lib/Ximian/BB.pm
+
+2005-12-21  Dan Mills  <thunder@ximian.com>
+
+	* BB.pm: Up version to 1.8.0.
+
+	* Friend.make:
+	* Makefile.PL:
+	* init.d:
+	* scripts:
+
+	Update and remove obsolete files.
+
+	* conf/bb.conf: Remove bb_snapshot defaults, it doesn't currently
+		  work in 1.8.
+
+	* plugins/operations/RcdOperations.pm: Fix return codes.
+
+	* lib/Ximian/Sys.pm (find_port): Change loop to return the given
+		  port if it is free (instead of the next).
+
+	* lib/Ximian/BB/Module.pm (module_files): Fix for interface changes.
+
+	* lib/Ximian/BB/Conf.pm: Add a get_dir_literal (no macro_replace).
+
+	* conf/os.conf: Pass through $USER.
+
+	* conf/bb.conf: Rename some settings.
+
+	* scripts/bb_unpack: Don't run the 'clean' operation by default.
+
+	* scripts/bb_regenerate: Start fixes for BB 1.8.  Needs more work.
+
+	* scripts/bb_node: Don't depend on Frontier::Client.  Better port
+		  config options.
+
+	* scripts/bb_macro: macro-replace all the arguments, and don't
+		  automatically add brackets around it.
+
+	* scripts/bb_jail_meta: Small fixes.
+
+	* scripts/bb_jail_manager: Manage jails!  Over the internet!
+
+	* scripts/bb_do (do_install): Make tmpinstdir for the module, for
+		  those who just have a simple "cp" in the install rule.
+
+	* scripts/bb_client: Add jail manager actions.
+
+	* scripts/bb_build: --on-failure is now --on-error.  I'm tired of
+		  mis-remembering it :-)
+
+2005-10-05  Dan Mills  <thunder@ximian.com>
+
+	* operations/BuildBBOper.pm:
+	* operations/InstallBBOper.pm:
+
+	Run rug under sudo, because of sles-8 rcd lameness with rcd.passwd.
+
+	* lib/Ximian/BB/Cvs.pm (get_module): Add 1 to the month; gmtime
+	returns the month from 0..11, not 1..12.
+
+2005-09-21  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/BB/Cvs.pm (get_module): (sigh) consider 'http' urls
+	to be subversion ones.
+
+2005-09-19  Dan Mills  <thunder@ximian.com>
+
+	* BB.pm: up to version 1.6.4.
+
+	* web/webroot/template/style.css: Make setting labels wider, we
+	have some loger ones now.
+
+	* web/webroot/sys/session/init.mpl: use CGI::Cookie.
+
+	* web/webroot/sys/handler.mpl: Don't load bb.conf or use CGI or
+	BB::Conf.
+
+	* web/webroot/submit/edit_globals.html: Add a link in the targets
+	page to go to the nodes page (to refresh them).
+
+	* web/webroot/submit/target_setting.mhtml:
+	* web/webroot/submit/new_job.pl:
+	* lib/Ximian/Web/BaseComp.pm:
+	* lib/Ximian/Web/TargetList.pm:
+	* web/webroot/admin/job.pl:
+	* web/webroot/report/status.html:
+	* web/webroot/report/retrieve_package.pl:
+	* web/webroot/report/logview.html:
+	* web/webroot/report/log_files.mhtml:
+	* web/webroot/report/jobinfo.html:
+
+	Get data from hardcoded vars in $BBWeb:: instead of bb.conf.
+
+	* web/webroot/report/nodes.html: Add links to refresh active/all
+	nodes.
+
+	* web/webroot/admin/node.pl: update_nodes_info -> update_active_nodes.
+
+
+	* web/cgi/mason_handler.cgi: Don't load bb.conf every time.  Use
+	comp root from $BBWeb::
+
+	* scripts/bb_master: Don't call update_nodes_info (or
+	update_active/all_nodes), for performance reasons.
+
+	* lib/Ximian/Web/Defs.pm: Set some hard-coded values, so we don't
+	have to re-read bb.conf for every web request.  This does mean we
+	have to edit this file for every installation, but it's worth it.
+
+	* lib/Ximian/BB/Master.pm: Add an update_active_nodes method, and
+	make the update_all_nodes method try dead nodes too.  Completely
+	remove the (already deprecated) update_nodes_info.
+
+	* lib/Ximian/BB/Jail.pm (load_guess_multiple): Don't complain
+	about jails you can't load so loudly (set to level 6)
+
+2005-09-16  Dan Mills  <thunder@ximian.com>
+
+	* MANIFEST: Add gen_html_docs and the XML::Simple copy (bleh)
+
+2005-09-15  Dan Mills  <thunder@ximian.com>
+
+	* BB.pm: Version 1.6.3.
+
+	* web/webroot/submit/new.html: 
+	* web/webroot/submit/edit_module.html: 
+	* web/webroot/submit/edit_globals.html: 
+
+	Change strings for SVN overloading.
+
+	* lib/Ximian/BB/Cvs.pm (get_module): Hack in subversion support -
+	runs svn if the cvsroot field starts with "svn".  Basically
+	ignores the cvsmodule field wrt the repo.
+
+	* conf/sql/log.sql: Fix a typo.
+
+2005-09-14  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/XML/Simple.pm: Just XML::Simple, but distributed by
+	  us now.  This is just so we can install the build system
+	  utilities more easily and not worry about this dep (virtually no
+	  one installs XML::Simple by default).  Sorry, I know it's kind
+	  of gross.
+
+2005-09-01  Dan Mills  <thunder@ximian.com>
+
+	* conf/os.conf: Add SUSE 10 support.
+
+2005-04-13  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_do (do_dist_rpm): Always run brp-compress, not only
+	when running unstripped builds.
+
+2005-03-07  Dan Mills  <thunder@boston.ximian.com>
+
+	* conf/os.conf: Add preliminary SuSE 9.3 support (the regex will
+	need to be updated once it's out of beta).  Also, make 9.2's regex
+	stricter, so it doesn't match the 9.3 betas.
+
+2005-02-17  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_get: run bb_scp from the same place this script is in.
+
+	* conf/os.conf: Add rhel 4 support
+
+2005-02-02  Dan Mills  <thunder@ximian.com>
+
+	* BB.pm: Up version to 1.6.2 for a new packaged release.
+
+2004-11-11  Dan Mills  <thunder@ximian.com>
+
+	* BB.pm: Update version to 1.6.1.
+
+	* scripts/bb_do (do_dist_rpm): Add %exclude lines in RPM.
+	Patch by Daniel Reichenbach <dsr@best-off.org>
+
+	* conf/sql/log.sql: Add ignore_build_errors to the schema.
+
+	* web/webroot/submit/new.html: Display ignore_build_errors
+		  setting.
+
+	* web/webroot/submit/edit_globals.html: Add checkboxes for
+		  ignore_submit_errors and ignore_build_errors.
+
+	* scripts/bb_schema_upgrade_1.6: Add ignore_build_errors column
+		  during upgrades.
+
+	* scripts/bb_client: Add --ignore_build_errors option.
+
+	* lib/Ximian/BB/DB/SavedJob.pm: Add ignore_build_errors to the
+		  table descriptions.
+
+	* lib/Ximian/BB/Build.pm (build_simple): Implement
+		  ignore_build_errors option.
+
+	* doc/xml-rpc-reference: Document ignore_submission_errors and
+		  ignore_build_errors.
+
+2004-11-01  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_do (do_dist_rpm): When generating find_requires /
+		  find_provides scripts, print a newline after each {i}
+		  element.
+
+2004-10-28  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/BB/Cvs.pm (get_module): Assume starttime is in GMT.
+
+	* scripts/bb_master (build_simple): Get the timestamp via XML-RPC
+		  if set, otherwise generate a new one and pass it on to
+		  the nodes.
+
+	* lib/Ximian/BB/Build.pm (build_simple): Get the timestamp from
+		  the args hash if set, instead of generating a new one.
+
+	* web/webroot/submit/new.html: Display "Remove Jail" status.
+		  Display "Jail Not Reapable" status.
+
+	* web/webroot/submit/edit_globals.html: Add a "Remove Jail"
+		  checkbox.  Add a "Jail Not Reapable" checkbox.
+
+	* scripts/bb_schema_upgrade_1.6: Add the remove_jail field when
+		  upgrading.
+
+	* scripts/bb_node (build_simple): Add remove_jail option.  If set
+		  and the job succeeds, the jail is deleted immediately.
+		  If set and the job fails, the jail is marked as not
+		  available, but it is left as reapable.
+		  Also, add a jail_not_reapable option.  If set, the jail
+		  is marked as not reapable and unavailable after the job
+		  is finished.  Get the timestamp from the master.
+	(remove_old_jails): Don't require jails to be marked as available,
+		only reapable.
+	(get_jail): Mark jails as not reapable when acquiring them.
+
+	* scripts/bb_client: Add --remove_jail option.  Add
+		  --jail_not_reapable option.
+
+	* lib/Ximian/BB/DB/SavedJob.pm: Add remove_jail field, and
+		  load/save stuff for it.
+
+	* doc/xml-rpc-reference: Document the remove_jail option to the
+		  node's build_simple call.  Document the
+		  jail_not_reapable option.
+
+	* conf/sql/log.sql (saved_jobs): Add a remove_jail field.
+
+2004-10-27  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/sys/session/init.mpl: Remove extra command which did
+		  nothing...
+
+	* scripts/bb_snapshot: Set the xml-rpc timeout correctly (and set
+		  it to 480).  If there was an xml-rpc exception, save it
+		  in the job hash so that logstyles can do stuff with it.
+
+	* scripts/bb_master: Better locking - use eval and remove the lock
+		  in case of errors.
+
+	* scripts/bb_logger: Better locking - use eval and remove the lock
+		  in case of errors.
+
+	* logstyles/BirdmanEmailLogStyle.pm: Add an error log email.
+
+	* lib/Ximian/BB/Master.pm (update_node): Move xmlrpc_ping in
+		  here.  When updating a node, make sure it's marked as
+		  "up" if it is responding.
+
+	* lib/Ximian/BB/AuthClient.pm (xmlrpc_connect): Don't use
+		  xmlrpc_ping, and increase the xmlrpc timeout to 360.
+
+	* lib/Ximian/Util.pm: xmlrpc_ping is no longer here.
+
+	* web/webroot/report/retrieve_package.pl: Inherit from the
+		  standard handler, so that $BBWeb:: is populated, etc.
+
+2004-10-20  Dan Mills  <thunder@ximian.com>
+
+	* conf/bb.conf: Set default shortname, owner, etc. to novell.
+
+	* web/webroot/report/all_jobs.html: Add a 'target_like' argument,
+		  to filter out jobs by target.
+
+	* lib/Ximian/BB/Jail/File.pm (load): Die if the 'file' command
+		  doesn't run correctly when detecting the jail type.
+
+	* logstyles/BirdmanEmailLogStyle.pm: Nicer reporting for birdman
+		  snaps.
+
+	* logstyles/HTMLEmailLogStyle.pm: Fix the package name.
+
+	* scripts/bb_snapshot: Add an --exclude_login option, the opposite
+		  of --login (i.e., submit all jobs except those of a
+		  certain user).  This is useful to split out snapshot
+		  runs.	
+
+	* scripts/bb_do (do_dist_*): Use shortname to construct the
+		  automatic provides (e.g., ximian-foo).  Get the
+		  shortname from the conf if it is overridden there.
+
+	* lib/Ximian/BB/Build.pm (channel_submit): Do ximian-style
+		  submissions (using rel-add-packages instead of rcman)
+		  when the shortname is "ximian" or "novell".
+
+2004-10-19  Dan Mills  <thunder@ximian.com>
+
+	* conf/os.conf: Added 64bit dirs to suse pkgconfig path; fix nld
+		  info/man directories.
+
+2004-10-14  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_get_svn: Don't *always* die.
+
+2004-10-13  Dan Mills  <thunder@tekkadon.boston.ximian.com>
+
+	* conf/os.conf: Add suse-92-*
+
+	* lib/Ximian/BB/Jail/RCD.pm (add_service): Number the logs
+	correctly for each service added.
+
+2004-10-12  Dan Mills  <thunder@tekkadon.boston.ximian.com>
+
+	* web/webroot/submit/new_job.pl: Redirect back to new.html when
+	updating a saved job.
+
+	* web/webroot/submit/new.html: Make the "actions" section a little
+	better.
+
+	* web/webroot/report/nodes.html: Sort the nodes by hostname.
+
+	* web/webroot/report/logview.html: $job -> $jobid.
+
+	* web/webroot/report/log_files.mhtml: Links to logview.html now
+	use "jobid" instead of "job" for the job id.
+
+	* scripts/bb_snapshot: Add --login (to restrict the snaps jobs to
+	a particular users'), and --allow-non-snap (to submit even jobs
+	not marked to be snapshotted).  Pause/restart the Ximian::Run
+	handler around XML-RPC calls.  --user defaults to "snapshot"
+	now. --loop is now -L, because --login is -l.
+
+	* scripts/bb_node (get_jail): Don't leave locked jails around.
+
+	* scripts/bb_master: Pause/restart Ximian::Run handler around
+	XML-RPC calls.  Release the bb_master_lock on SIGINT.
+
+	* scripts/bb_get_svn: die if svn didn't check out anything.
+
+	* logstyles/HTMLEmailLogStyle.pm: Email logstyle that sends HTML
+	emails.
+
+	* logstyles/EmailLogStyle.pm: Produce a summary.
+
+	* logstyles/BirdmanEmailLogStyle.pm: Specialized email logstyle
+	for Birdman snapshots.
+
+	* lib/Ximian/Render/HTML2.pm: HTML Table renderer with some extra
+	styling tags, for use with the email bb_snapshot logstyles.
+
+	* lib/Ximian/BB/DB/SavedJob.pm (save_job): Return the newly saved
+	job's sjid.
+
+	* lib/Ximian/BB/Logger.pm: Pause/restart the Ximian::Run handler
+	around XML-RPC calls.
+
+	* lib/Ximian/BB/Build.pm (setup_rcd): Split code to get services
+	array into two lines, for clarity.
+
+	* lib/Ximian/BB/AuthClient.pm: Pause/restart the Ximian::Run
+	handler around XML-RPC calls.
+
+	* lib/Ximian/Run.pm (_run_cmd): Run the pre_run_cb after setting
+	up the pipe.
+	
+	* scripts/bb_do: Set %__spec_build_pre for all suses, not just
+	suse-91.
+
+2004-10-07  Dan Mills  <thunder@ximian.com>
+
+	* bb_master: Release the lockfile on SIGINT.
+
+	* scripts/bb_do: Fix for subversion sources.
+
+2004-10-05  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/submit/new.html: Add some help text so it's clear
+		  what the "[^ v | T B | x]" means.
+
+	* scripts/bb_node (get_jail): Error out if we can't get a source
+		  jail
+
+2004-10-04  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/submit/new_job.pl: Add a small sleep statement to
+		  avoid jamming the master (bleh).
+
+	* scripts/bb_get_svn: Script to get svn sources.
+
+	* scripts/bb_unpack: Add svn support.
+
+	* scripts/bb_get_lwp: Set targetdir a little better, we don't
+		  need to set it as an env var.
+
+	* scripts/bb_get: Move pod to bottom, tidy up a little.
+
+	* logstyles/RSSLogStyle.pm: Remove extra slash from link.
+
+2004-10-01  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/submit/edit_module.html: When adding a new module,
+		  don't auto-fill the fields from the defaults.
+
+2004-09-30  Dan Mills  <thunder@ximian.com>
+
+	* BB.pm: Version 1.6.0! Whee!
+
+	* doc/relnotes-1.6: Release notes for BB 1.6.
+
+2004-09-29  Dan Mills  <thunder@ximian.com>
+
+	* bb.conf: Add comments.  Add sections for bb_snapshot, as well
+		  as the bb_snapshot rss logstyle.
+
+	* web/webroot/template/style.css: Add settings for the nodeinfo
+		  header (the node data at the top of the page).
+
+	* web/webroot/submit/update_cache.pl: Use the global session
+		  cache.
+
+	* web/webroot/submit/submission_results.html: Add <p> tags for
+		  nicer display with the new stylesheet.  And, use the
+		  global session cache.
+
+	* web/webroot/submit/new_job.pl: Use the global session cache.
+
+	* web/webroot/submit/new.html: Don't use /shared/setting.mthml,
+		  it's unnecessary now that we have edit_globals.html.
+
+	* web/webroot/submit/edit_globals.html: Set maxlength values for
+		  all the textboxes.  Fix to work even if the job has no
+		  submit_targets hash key (i.e., it's a new job).
+
+	* web/webroot/submit/edit_*.html: Make sure the numbering of the
+		  items is correct in all cases, otherwise we end up with
+		  "ARRAY" values in them.
+
+	* web/webroot/report/nodeinfo.html: Make this page not suck with
+		  the new stylesheet.
+
+	* web/webroot/admin/msg/jobdel.html: The kill_job return value
+		  changed, so change the messages here accordingly.
+
+	* web/webroot/admin/node.pl: Use Ximian::Run and safe_sleep.
+
+	* web/webroot/account/login.pl: Allow empty passwords (with a bit
+		  of a hack).  Change the eval {} usage, for style.
+
+	* web/webroot/account/create.pl: Catch permission denied (bad
+		  password) errors.
+
+	* scripts/bb_snapshot: Make bb_snapshot rock.
+
+	* scripts/bb_node: Rework the code that finds/unpacks a jail to
+		  make it nicer.  Print jail information so it ends up in
+			  the bb_node_log for each job.
+
+	* scripts/bb_master: Add locking.  Fix the RPC::XML usage.
+		  Return to the asynchronous submission method.  Set
+		  XML-RPC timeout to 240.
+
+	* scripts/bb_logger: Add some locking.  Set the XML-RPC timeout
+		  to 240.
+
+	* scripts/bb_do: macro_replace package names.
+
+	* scripts/bb_client (query_dispatch): Use safe_sleep.
+
+	* scripts/bb_authserver: Use RPC::XML instead of Frontier::RPC.
+		  Use base64 for several arguments, and don't use
+		  xmlrpc_fix_str anymore.
+
+	* logstyles/RSSLogStyle.pm: Get settings from bb.conf.  Allow
+		  setting a stylesheet.
+
+	* logstyles/EmailLogStyle.pm (render_jobs): Fix format_table
+		  usage.
+
+	* lib/Ximian/BB/Jail/RCD.pm (start_daemon): Use safe_sleep,
+		  because we use Ximian::Run.
+	(solvedeps): Put single quotes around the solvedeps arguments.
+
+	* lib/Ximian/BB/Jail/Dir.pm (load): Die immediately if we
+		  couldn't detect the type of the file to be loaded.
+
+	* lib/Ximian/BB/Master.pm: Provide a function to update only one
+		  node.
+
+	* lib/Ximian/BB/Logger.pm: Fix RPC::XML usage so we catch all
+		  errors.  Also, in the logging_cb, send a space instead
+		  of an empty string as the log -- RPC::XML::Base64 can't
+		  handle empty strings apparently.
+
+	* lib/Ximian/BB/Jail.pm: Use lock_acquire_safe_spin, because we
+		  use Ximian::Run.  And, set the report levels a bit
+		  higher so we're less chatty.
+
+	* lib/Ximian/BB/Build.pm (build_simple): Start sessioned commands
+		  at id 10, to leave some space for pre-session logs.
+		  Also, prepend the jail path when creating directories.
+
+	* AuthClient.pm: Use RPC::XML in favor of Frontier::RPC.
+
+	* lib/Ximian/Util.pm: xmlrpc_fix_str is gone! yay!
+
+	* lib/Ximian/SimpleTable.pm: Export format_table.
+
+	* lib/Ximian/Run.pm: Added safe_sleep and lock_acquire_safe_spin,
+		  which are safe to use with Ximian::Run.
+
+2004-09-22  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/BB/Jail.pm (load_guess_multiple): Set report level
+		  for the could-not-load-jail error to 4.  Because it's
+		  the multiple jail loading method, it's ok to be a little
+		  more quiet about errors loading single directories/files.
+
+2004-09-21  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/submit/edit_globals.html: Make the user write the
+		  "submit targets" with commas, and then store them as a
+		  listref.  This'll need a specialized widget later.
+
+	* web/webroot/template/style.css: Make the top bar line up with
+		  the main content.
+
+	* web/cgi/error_handler.cgi: Sample script to customize errors
+		  (and do things like append apache's error log to them).
+
+2004-09-20  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/widgets/Ximian/Web/TextBox.mhtml: Mason portion of
+		  the text box widget.
+
+	* web/webroot/widgets/Ximian/Web/CheckBox.mhtml: Mason portion of
+		  the check box widget.
+
+	* web/webroot/widgets/Ximian/Web/TargetList.mhtml: Mason portion
+		  of the target list widget.
+
+	* web/webroot/template/tables.css: Change the table borders a
+		  little so they look slightly less hideous inside the
+		  roundyboxes.
+
+	* web/webroot/template/style.css: New bubbly look for everything.
+		  Yes, I know I went too far.  But it's so friendly now!
+
+	* web/webroot/template/standard.mhtml: Remove tables, add
+		  roundyboxes, etc.
+
+	* web/webroot/template/breadcrumb.mhtml: CSS goodness.
+
+	* web/webroot/sys/session/init.mpl: Set the global session cache
+		  too if there's a valid cookie.
+
+	* web/webroot/sys/session/cleanup.mpl: Set the global cache if
+		  there's a user object set.
+
+	* web/webroot/sys/handler.mpl: Have 'data_cache_namespace'
+		  available for the session stuff.
+
+	* web/webroot/submit/saved.html: Wrap in <p>'s for the padding.
+
+	* web/webroot/submit/load_saved.pl: Remove session stuff, use the
+		  global session we get via sys/session/*.
+
+	* web/webroot/submit/edit_globals.html: CGI form to change all the
+		  settings that used to be changed directly in new.html.
+
+	* web/webroot/shared/roundybox.mhtml: Hack to produce boxes with
+		  rounded edges that can expand/contract based on the
+		  content.
+
+	* web/webroot/report/running_jobs.html: Wrap in a <p> for the
+		  padding.
+
+	* web/webroot/report/nodes.html: Wrap in a <p> for the padding.
+
+	* web/webroot/report/jobinfo.html: Remove tables, use stylesheets.
+
+	* web/webroot/report/all_jobs.html: Fix for stylesheet changes.
+
+	* web/webroot/images/roundybox/white/*: PNGs for boxes that go
+		  inside other (white-filled) boxes.
+
+	* web/webroot/images/roundybox/background/*: PNGs for boxes that
+		  go against the (blue) background.
+
+	* web/webroot/images/roundybox/corner_template.xcf: GIMP template
+		  for creating new corners for the "roundybox" hack.
+
+	* web/webroot/index.html: Wrap content in a <p> so it indents
+		  nicely.
+
+	* scripts/gen_html_docs: Script to generate html documentation
+		  tree.
+
+	* scripts/bb_watchdog: Small POD fix.
+
+	* scripts/bb_unpack: Small POD fixes.
+
+	* scripts/bb_scp: Add some magic to detect a "--recursive" option
+		  and call scp -r if it's set.  Ugh.
+
+	* scripts/bb_node: POD fix.
+
+	* scripts/bb_do: Fix report() usage so we don't print extra
+		  newlines everywhere (whee! it's about time).  Also,
+		  don't use L<> (links) in POD, because pod2html doesn't
+		  like them (or I don't know how to use them).
+
+	* scripts/bb_client: Small POD fixes.
+
+	* lib/Ximian/Web/BaseComp.pm: Base class for BB's Mason widgets
+		  (the logic - the Mason portions go in
+		  web/webroot/widgets).
+
+	* lib/Ximian/Web/FormComp.pm: Base class for all widgets that
+		  represent CGI form objects.
+
+	* lib/Ximian/Web/TextBox.pm: A CGI text box.
+
+	* lib/Ximian/Web/CheckBox.pm: A CGI check box.
+
+	* lib/Ximian/Web/TargetList.pm: A list of CGI check boxes for
+		  picking targets.
+
+	* lib/Ximian/BB/Jail/Session.pm: Small POD fix.
+
+	* init.d/bb_master (check_user): Improved check for whether we're
+		  root or not.
+	Patch by Daniel Reichenbach <dsr@best-off.org>
+
+	* doc/bb-manual.xml: Make the manual suck less.
+
+	* BB.pm: Er, kind of late in the devel cycle, but up version to
+		  1.5.1, since people are making tarballs of cvs (wow!).
+
+2004-09-09  Dan Mills  <thunder@ximian.com>
+
+	* conf/dtd/helix-build.dtd: update! update!
+
+2004-08-30  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_snapshot: Deal more gracefully with snaps failing to
+		  submit correctly.  Submit *all* targets of a saved job.
+		  Deal more gracefully with badly-written logstyles that
+		  die().  Allow user to specify several logstyles, to be
+		  called in order.
+
+	* scripts/bb_master: Use RPC::XML instead of Frontier::RPC.
+
+	* logstyles/RSSLogStyle.pm: Support for producing RSS feeds from
+		  snapshot data.
+
+	* logstyles/EmailLogStyle.pm: Switch to using an ascii table
+		  instead of a list.
+
+	* lib/Ximian/BB/DB/SavedJob.pm (update_saved_job): Don't remove
+		  all the activations attached to a saved job *inside* the
+		  loop that adds them! (ha).
+
+	* lib/Ximian/BB/Logger.pm (logging_cb): Don't add extra newlines
+		  to logs.
+
+	* lib/Ximian/BB/Build.pm (setup_rcd): Add all the services at once
+		  so that they get different numbers in the logs.
+
+	* Makefile.PL: Add bb_schema_upgrade_1.6
+
+	* MANIFEST: Add bb_schema_upgrade_1.6
+
+	* scripts/bb_schema_upgrade_1.6: Script to update the db from 1.4
+		  to 1.6.
+
+2004-08-25  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/report/nodeinfo.html: Fix for when there are zero
+		  old jails, and fix the wording for only one old jail.
+
+	* web/webroot/report/jobinfo.html: Add the jobid to the page title.
+
+	* scripts/bb_logger: Switch to using RPC::XML instead of
+		  Frontier::RPC.
+
+	* lib/Ximian/BB/Logger.pm: Switch to using RPC::XML instead of
+		  Frontier::RPC.
+
+	* lib/Ximian/Util.pm (xmlrpc_ping): Safer string munging.  Same
+		  awfulness.
+
+2004-08-23  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_node: Don't die if outputdir isn't available - it
+		  doesn't have to be anymore.
+
+	* lib/Ximian/BB/XML/Tar.pm (inspect_tarball): Add bz2 support.
+	Patch by Vitaly <cvv@email.zp.ua>
+
+	* lib/Ximian/BB/XML.pm: Add bz2 support.
+	Patch by Vitaly <cvv@email.zp.ua>
+
+	* conf/os.conf: Additional RHEL / Fedora support.
+	Patch by Daniel Reichenbach <dsr@best-off.org>
+
+	* lib/Ximian/BB/Build.pm (build_simple): On SUSE, run SuSEconfig
+		  if we ran red carpet.
+
+2004-08-20  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_do: Clarify error when sources are not found (suggest
+		  bb_unpack).
+
+	* scripts/bb_node (list_jails): Add list_jails xml-rpc method.
+
+	* web/webroot/report/retrieve_package.pl: Fix for new outputdir
+		  path.
+
+	* web/webroot/report/nodeinfo.html: List unpacked jails!
+
+	* conf/os.conf: Set rpmbuild_cmd to "rpmbuild" on nld.
+
+2004-08-18  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_do (do_dist_rpm): Don't rm -rf dest at pack time on
+		  nld (remove that suse behavior in %__spec_build_pre --
+		  since we run that macro at pack time too).
+
+	* scripts/bb_snapshot: Don't use sleep(), and use Ximian::Run.
+
+	* lib/Ximian/BB/Jail/Session.pm: If the session has a uid
+		  specified, change the uid to that before executing the
+		  subcommand.
+
+	* lib/Ximian/BB/Jail/RCD.pm: Add support for specifying rcd.passwd
+		  and rcd.conf via jail metadata.  Don't use sleep() so we
+		  don't conflict with Ximian::Run.
+
+	* lib/Ximian/BB/Build.pm (build_simple): Don't build as root
+		  anymore.  Build as distro.  Whoo!
+
+	* scripts/distribution.guess: Add nld.
+	Patch from Rodney Dawes <dobey@novell.com>
+
+	* conf/os.conf: Add nld.
+	Patch from Rodney Dawes <dobey@novell.com>
+
+2004-08-15  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/submit/new.html: Add ignore_submission_errors.
+
+	* scripts/bb_client: Add ignore_submission_errors.
+
+	* lib/Ximian/BB/DB/SavedJob.pm: Add ignore_submission_errors.
+
+	* lib/Ximian/BB/Build.pm (build_simple): Don't try to build
+		  modules that are already installed in the jail with the
+		  same version.  And, if the ignore_submission_errors
+		  flag is passed in ... do that.
+
+	* conf/sql/log.sql: Added ignore_submission_errors to saved_jobs.
+
+2004-08-14  Dan Mills  <thunder@ximian.com>
+
+	* MANIFEST: Add TarballPkgBBOper.pm
+
+	* operations/TarballPkgBBOper.pm: Operation to create tarballs
+		  from packages.  Currently only supports rpm packages.
+
+	* web/webroot/submit/new.html: Added create_tarballs option.
+
+	* scripts/bb_unpack: Move stuff around to make it all less
+		  painful to read.  Some source "type" stuff is in there
+		  too, but not quite ready yet (it does not affect the
+		  current source lines).
+
+	* scripts/bb_jail_meta: Can now list the available metadata
+		  stores, as well as listing all the (simple) metadata in
+		  a store.
+
+	* scripts/bb_get: Use bb_scp instead of scp.
+
+	* scripts/bb_client: Add --create_tarballs.
+
+	* scripts/bb_build (list_operations): Use line_up.
+
+	* logstyles/EmailLogStyle.pm (render_jobs): Cosmetic fix.
+
+	* lib/Ximian/BB/DB/SavedJob.pm: Add create_tarballs, plus the
+		  load/save code for it.
+
+	* lib/Ximian/BB/Build.pm (build_simple): Run the
+		  tarballpkg:create operation when create_tarballs is set.
+
+	* lib/Ximian/Util.pm (line_up): New sub, to easily line up two
+		  columns.  It doesn't set the width automatically,
+		  though (but that's ok).
+
+	* doc/xml-rpc-reference: Document create_tarballs.
+
+	* conf/sql/log.sql: saved_jobs now has a create_tarballs bool.
+
+2004-08-12  Dan Mills  <thunder@ximian.com>
+
+	* Makefile.PL: bb_snapshotter is gone.
+
+	* MANIFEST: bb_snapshotter is gone.  old bb_jail_* scripts too.
+
+	* scripts/config.guess: Update to newest version,  from
+		  autoconf 2.59.
+
+	* conf/os.conf: Add sles-9-ia64 section.
+
+2004-08-11  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_snapshot (populate_logstyles): --longsleep is now
+		  called --loop.  Also, forcibly disconnect from the DB
+		  after forking (on both procs) with a horrible hack.
+
+	* logstyles/EmailLogStyle.pm (snaps_end): Make it mo' better.
+
+	* Friend.make (install-friends): bb_snapshotter -> bb_snapshot
+
+	* init.d/daemontools/bb_snapshot: Moved from
+		  init.d/daemontools/bb_snapshotter.  Added --loop 1.
+
+2004-08-10  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/submit/new.html: Remove ruler from the module list
+		  (it's not wide enough and it's distracting), and make
+		  the button/links in it bold so they're easier to click on.
+
+	* web/cgi/mason_handler.cgi: Add some eval {} action, just in case.
+
+	* scripts/bb_snapshot: bb_snapshotter was merged into this script,
+		  and it was updated for bb 1.6.
+
+	* scripts/bb_node: --jail_delete_threshold is gone.
+		  --maximum_jails is in.
+
+	* scripts/bb_master (job_status): New xml-rpc method to get the
+		  status of a job.
+	(kill_job): Be a little less restrictive about which errors cause
+		us to think the node is down/unreachable.  Any "Can't
+		connect" error now does it.
+
+	* scripts/bb_email_test: Little script to test the email sending
+		  module (Mail::Sendmail).  For debugging a BB setup.
+
+	* scripts/bb_do (do_dist_rpm): Hardcode the path to brp-compress
+		  on /(rhel|sles|suse|sles).*x86_64/, instead of just
+		  /rhel.*x86_64/.
+
+	* scripts/bb_client: Moved --query stuff into a subroutine of its
+		  own (query_dispatch), and added a jobstatus query, to
+		  check the status of a job.  Added a jail_cleanup flag,
+		  to ask a node to clean up its jails (this may go away in
+		  the future as we improve the jail handling on the node).
+
+	* logstyles/EmailLogStyle.pm: Send logs via email (uses
+		  sendmail/postfix)
+
+	* logstyles/DemoLogStyle.pm: Example logstyle.
+
+	* lib/Ximian/BB/DB/SavedJob.pm: Fix typos.
+
+	* lib/Ximian/BB/Submit.pm (job_from_xml): New function.  It does
+		  (or, will do) the munging of a data structure as
+		  XML::Simple returns to match what the build master/node
+		  expect.
+
+	* lib/Ximian/BB/Build.pm (build_simple): Sets BB_ARCHIVEDIR to a
+		  directory in $tmpdir (so, /tmp/bb.<jobid>/built-packages
+		  inside the jail), and also sets the mcookie/partnernet
+		  data in the jail metadata.
+
+	* lib/Ximian/Util.pm (report): Add ability to not print a
+		  newline.  Extra args can be passed in by placing a
+		  hashref as the first arg.
+
+2004-08-02  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/report/jobinfo.html: Do a little magic to set the
+		  title (but not the headline) such that it has the
+		  current status in it.  Also, fix a couple of bugs that
+		  prevented the files from displaying.
+
+	* lib/Ximian/BB/Jail/RCD.pm: Added mcookie & partnernet get/set
+		  methods.  They set them in the jail metadata (in
+		  rcd.xml), and shutdown rcd.  The start_daemon subroutine
+		  now writes out those files before starting the daemon.
+		  The new & load methods now take rcd_mcookie and
+		  rcd_partnernet as arguments.
+
+	* web/webroot/submit/update_cache.pl: Add submit_targets stuff.
+		  Also, added module_top and module_bottom actions, to
+		  implement the "top" and "bottom" buttons in new.html.
+
+	* web/webroot/submit/new.html: Add submit_targets goodies.  Also,
+		  Added mcookie/partnernet.  Added "top" and "bottom"
+		  links to make resorting modules easier.  The module sort
+		  links are now abbreviated, they were getting a little
+		  long.
+
+	* operations/RelBBOper.pm: Add a --submit-targets option to
+		  specify what targets get submitted to.  Defaults to the
+		  current target if not specified.
+
+	* lib/Ximian/BB/DB/SavedJob.pm: Add submit_targets
+		  (Ximian::BB::DB::SavedJobSubmitTargets) and related
+		  loading/saving code.  Also, Add rcd_mcookie/rcd_partnernet.
+
+	* lib/Ximian/BB/Build.pm (build_simple): Pass on submit_targets to
+		  the bb_build operation for submission.  Also, pass on
+		  rcd_mcookie/rcd_partnernet to the RCD object.
+
+	* doc/xml-rpc-reference: Add submit_targets, an array of
+		  additional targets to submit to, but not build on.
+		  Also, document rcd_mcookie/rcd_partnernet.
+
+	* conf/sql/log.sql: Add saved_job_submit_targets, a table to keep
+		  track of additional targets that are not built-on but
+		  should be submitted to.  Also, Add mcookie/partnernet
+		  fields for rcd.
+
+2004-07-30  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/submit/error/autohandler: Hide the breadcrumb
+		  correctly.
+
+	* web/webroot/submit/update_cache.pl: jail_deps_array ->
+		  extra_deps_array, and add a shared_users_array.
+
+	* web/webroot/submit/saved.html: Add shared jobs support + be more
+		  careful when splicing.
+
+	* web/webroot/submit/new_job.pl: Run the newjob hash through
+		  remove_undefs before passing it to Frontier::Client.
+
+	* web/webroot/submit/new.html: Add a link to edit shared users.
+
+	* web/webroot/submit/load_saved.pl: Allow shared users (i.e.,
+		  other users this job is shared with) to look at/edit
+		  jobs.
+
+	* web/webroot/submit/edit_shared_users.html: A page to set the
+		  additional users that should be able to edit this saved
+		  job.
+
+	* web/webroot/submit/edit_jail_deps.html: We call this "Extra
+		  Deps" now, even though the filename is unchanged.
+
+	* web/webroot/submit/delete_saved.pl: Foo->delete is deprecated,
+		  so we must Foo->search, then delete_all on the iterator.
+
+	* web/webroot/report/running_jobs.html: Be careful when splicing not
+		  to do so out of bounds.
+
+	* web/webroot/report/all_jobs.html: Be careful when splicing not
+		  to do so out of bounds.
+
+	* web/webroot/account/logout.html: "update", don't "commit" to the
+		  database.  Class::DBI likes it better that way.
+
+	* web/webroot/account/create.pl: Add an email field.
+
+	* web/webroot/account/create.html: Add an email field.
+
+	* scripts/bb_ssh: Die if the key file couldn't be copied.
+
+	* scripts/bb_authserver (my_verify_key): Add email field.
+
+	* lib/Ximian/BB/Jail/RCD.pm (solvedeps): Run solvedeps -r -y.
+
+	* lib/Ximian/BB/DB/SavedJob.pm: Added extra deps / shared users
+		  classes, as well as code to get the data out of/into the
+		  db from the session hash.
+
+	* lib/Ximian/BB/Logger.pm (logging_cb): Run remove_undefs on the
+		  tree, just in case.
+
+	* lib/Ximian/BB/Build.pm: Set BB_ARCHIVEDIR to the local
+		  filesystem (/tmp/foo) and rsync to the master
+		  regularly.  This is part of the NFS riddance work.
+
+	* lib/Ximian/BB/AuthClient.pm (new_user): Add an email field.
+
+	* lib/Ximian/BB/Auth.pm (new_user): Add an email field.
+
+	* lib/Ximian/Util.pm (remove_undefs): This new sub traverses a
+		  tree and replaces any undefs in it with empty strings.
+		  This is useful because Frontier::RPC2 barfs if there are
+		  undefs when it's trying to convert to XML.
+
+	* doc/xml-rpc-reference: Heh, ok, jail_deps -> extra_deps.
+
+	* conf/sql/log.sql: Added saved_job_extra_deps and
+		  saved_job_shared_users tables.
+
+2004-07-29  Dan Mills  <thunder@ximian.com>
+
+	* doc/xml-rpc-reference: Add a blurb about jail_deps (which
+		  replace extra_jail_deps_dir).
+
+	* web/webroot/template/standard.mhtml: Don't try to use $r if it
+		  doesn't exist (so we can use the template outside
+		  apache/cgi).
+
+	* web/webroot/submit/update_cache.pl: Parse jail deps, and
+		  checkbox-style targets into the session's job tree.
+
+	* web/webroot/submit/target_setting.mhtml: Cool checkboxes for
+		  selecting the targets for the jobs.
+
+	* web/webroot/submit/new.html: Modify for setting.mhtml changes.
+		  Add a link to the jail deps page.  Explicitly name the
+		  cache namespace, since the default under cgi is not the
+		  same as under mod_perl (because the url is different).
+
+	* web/webroot/submit/edit_rcd_vars.html: Add an example, modify
+		  for setting.mhtml changes.
+
+	* web/webroot/submit/edit_rcd_subscriptions.html: Add an example,
+		  modify for setting.mhtml changes.
+
+	* web/webroot/submit/edit_rcd_activations.html: Add an example,
+		  modify for setting.mhtml changes.
+
+	* web/webroot/submit/edit_module.html: Modify for setting.mhtml
+		  changes.
+
+	* web/webroot/submit/edit_jail_grep_queries.html: Add an example,
+		  modify for setting.mhtml changes.
+
+	* web/webroot/submit/edit_jail_deps.html: A way to specify build
+		  dependencies for the entire job.
+
+	* web/webroot/submit/edit_env.html: Add an example, modify for
+		  setting.mhtml changes.
+
+	* web/webroot/shared/setting.mhtml: Change to accept single
+		  variables instead of a hash with all the data.
+
+	* lib/Ximian/BB/Logger.pm (logging_cb): Hack to only send *some*
+		  data over to the logger server, because some things
+		  can't be serialized to xml well (e.g., the pipe).
+
+	* lib/Ximian/BB/Build.pm (setup_rcd): Fix so the channel names to
+		  update are extracted correctly.
+
+	* lib/Ximian/Util.pm (setdiff): Return the intersection of the two
+		  sets as well.
+
+	* conf/os.conf: suse-91-x86_64: rpmbuild command is rpmbuild.
+		  sles-9-x86_64: add section to support it.
+
+2004-07-28  Dan Mills  <thunder@ximian.com>
+
+	* conf/os.conf: libdir needs ${DESTDIR} in the install rules.
+
+2004-07-27  Dan Mills  <thunder@ximian.com>
+
+	* conf/os.conf: Add mandrake-100-i586 (Mandrake 10.0) support.
+
+	* scripts/bb_master (node_register): Clarify the error case
+		  further by suggesting DBD::Pg could be missing.
+
+2004-07-26  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/BB/Build.pm (build_simple): Rename extra_jail_deps to
+		  jail_deps, to avoid confusion with the earlier variable.
+
+2004-07-23  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/BB/Jail/RCD.pm (solvedeps): Add the solvedeps
+		  capability.
+
+	* lib/Ximian/BB/Build.pm (build_simple): extra_jail_deps is a list
+		  of dependencies now.  Maybe we should change the name
+		  and ignore extra_jail_deps... Uses RCD's solvedeps to
+		  install the extra stuff.
+
+	* web/webroot/report/log_files.mhtml: Deal with undefined things
+		  (don't just die).
+
+	* web/webroot/report/jobinfo.html: Don't use $job if we couldn't
+		  retrieve it from the database.
+
+	* web/webroot/report/all_jobs.html: Don't die if $user is not
+		  defined.
+
+2004-07-21  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_logger (job_log): nfs-less logging function.
+
+	* lib/Ximian/BB/Logger.pm: Remove old disabled functions from 1.2.
+	(logging_cb): First stab at nfs-less logging.
+
+2004-07-15  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_node: Exit with code 1 when it can't bind to a port.
+
+	* conf/os.conf: The install rules need to use "libdir=foo" instead
+		  of "--libdir=foo".
+
+	* web/webroot/report/status.html: Fix a small bug, and display the
+		  url for each service.
+
+	* conf/bb.conf: Set the comp_root for the mason handler, and a
+		  logger_group for Logger.pm.
+
+	* web/cgi/mason_handler.cgi: Get the comp_root from bb.conf.
+
+2004-07-14  Dan Mills  <thunder@ximian.com>
+
+	* Friend.make (install-friends): Add support for installing
+		  web-related things to other places, via env vars:
+		  HTDOCSDIR, CGIDIR, APACHE_CONFDIR.
+
+	* web/webroot/template/style.css: Add some generic up/down status
+		  color classes.
+
+	* web/webroot/report/status.html: Simple status page to see the
+		  up/down status of various daemons, and their versions.
+
+	* web/webroot/report/all_jobs.html: Don't try to use $r if it
+		  doesn't exist (for example, when running under
+		  bb_test_mason).
+
+	* web/webroot/index.html: Add link for BB status page.
+
+	* web/cgi/mason_handler.cgi: CGI script to run mason.
+
+	* web/apache/bb-cgi.conf: Sample apache config file for cgi usage
+		  of mason (as opposed to mod_perl).
+
+	* scripts/bb_test_mason: Script to run mason from the CLI.
+
+	* lib/Ximian/Web/MasonHandler.pm: Only has the apache handler now.
+
+	* lib/Ximian/Web/Defs.pm: Mason globals moved from
+		  MasonHandler.pm.
+
+2004-07-12  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_master (node_register): Report DB problems in more
+		  detail (send back $@, the exception).
+
+	* scripts/bb_node: Don't check that /ximian is mounted - we don't
+		  need it anymore.  Only check outputdir, as defined in
+		  bb.conf.
+
+	* init.d/bb_master: Compatibility with other linux variants.
+	Based on patch by Vitaly <cvv@email.zp.ua>.
+
+2004-07-08  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/Run.pm (_system): At least in some versions of perl,
+		  getattr/setattr need numerical file descriptors,
+		  'STDOUT' or 'STDERR' don't work.  So, use 1 and 2.
+
+	* conf/os.conf: On suse-91-x86_64, perl modules go into
+		  [[usrprefix]]/lib, not [[usrprefix]]/lib64.
+
+2004-07-07  Dan Mills  <thunder@ximian.com>
+
+	* conf/os.conf: Recognize suse-91-x86_64.
+
+	* lib/Ximian/Run.pm (_system): Replace '1' and '2' with 'STDOUT'
+		  and 'STDERR'.
+
+2004-07-01  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/Run.pm (_system): Add some tty (termios) magic for
+		  non-standard child process signal handling.
+	Based on patch by Vitaly <cvv@email.zp.ua>.
+
+2004-06-30  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_master (build_simple): When a node doesn't respond to
+		  repeated pings, mark it as unavailable, and try to
+		  reschedule the job to another node.
+
+	* BB.pm: Update to 1.4.5.
+
+2004-06-29  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_node (build_simple): Add some debugging output
+		  at loglevel 6.
+
+	* scripts/bb_master: Don't use Ximian::Run.
+	(build_simple):  Add more logging about what the master is
+		doing.  Also, ping the node before trying to run the job
+		on it.  All is done synchronously now to avoid DB problems.
+
+	* lib/Ximian/BB/Logger.pm: Remove all the Ximian::Run silliness.
+
+	* lib/Ximian/Run.pm (process_reaper): Catch exceptions thrown by
+		  the logging_cb.
+	(sigalrm_handler): Update the number of running subprocs.
+	(alternate_logging_cb): Print the PID of the process in every line.
+
+2004-06-18  Dan Mills  <thunder@ximian.com>
+
+	* conf/os.conf: Add --libdir to the install macros, the newer
+		  autotools require it.
+
+2004-06-17  Dan Mills  <thunder@ximian.com>
+
+	* conf/os.conf: Fedora 2 support.
+
+2004-06-11  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_master (build_simple): Do the node scheduling
+		  asynchronously as well.  Jobs get initialized with an
+		  empty nodeid.  Also, xmlrpc calls are done with
+		  Ximian::Run's sigalrm handler off.
+
+	* lib/Ximian/BB/Logger.pm: Pause/resume Ximian::Run's handler
+		  around xml-rpc calls.
+
+	* lib/Ximian/Run.pm: Added pause_handler and resume_handler to
+		  temporarily stop/resume sigalrm.
+
+2004-06-10  Dan Mills  <thunder@ximian.com>
+
+	* Makefile.PL: Add schema upgrade script.
+
+	* MANIFEST: Add schema upgrade script.
+
+	* web/webroot/template/style.css: Add node info colors (up/down).
+
+	* web/webroot/report/nodes.html: Make page load faster.  Nodes
+		  don't list full targets list anymore, only how many they
+		  have.
+
+	* web/webroot/report/nodeinfo.html: Don't list jails on node, it's
+		  all broken.
+
+	* scripts/bb_snapshotter: Don't use Ximian::BB::DB::SavedJob::Loader,
+	          it does not exist anymore.
+
+	* scripts/bb_schema_upgrade_1.4.4: Script to update the db from 1.4.3.
+
+	* scripts/bb_master (build_simple): Make call asynchronous.  Fix
+		  problem where jobs were being marked as 'failed'
+		  incorrectly.
+
+	* scripts/bb_logger (job_update): Add ability to update job status.
+
+	* scripts/bb_do (do_dist_rpm): Add "prerm" script support.
+
+	* lib/Ximian/BB/DB/Node.pm: Add "deleted" column to the Node table.
+
+	* lib/Ximian/Util.pm (xmlrpc_ping): Set default ping timeout to 15
+		  seconds, instead of 5.
+
+	* lib/Ximian/Run.pm (process_reaper): Don't look at processes that
+		  haven't started yet (as determined by the "not_ready"
+		  context flag).  Also, added $Ximian::Run::num_subprocesses,
+		  which has the number of current subprocesses.
+
+	* conf/sql/log.sql (nodes): Add a "deleted" field, to mark nodes
+		  which will never come back (but may still be linked to
+		  from jobs).
+
+	* BB.pm: New version: 1.4.4.
+
+2004-06-02  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/report/all_jobs.html: Fix browsing links.
+
+	* web/webroot/admin/msg/jobdel.html: Add a message for when the
+		  node can't be contacted.
+
+	* web/webroot/admin/job.pl: Call the master (not the node) for the
+		  job killing.
+
+	* scripts/bb_node (remove_old_jails): Require jails to be marked
+		  "reapable" in order to be automatically removed.
+	  (build_simple): Set $Ximian::Run::subprocess_flag to 0 once we
+		  go async.  When unpacking a new jail, check for
+		  exceptions and make the job fail.  After a job is done,
+		  kill all packages inside the jail, and mark it as
+		  reapable.  Also, don't hardcode the log_step to 10.
+	  (kill_job): Just kill all the procs in the jail and leave it
+		  alone.
+
+	* scripts/bb_master (build_simple): Don't ever mark a job as dead
+		  when it's still running ;) - Also, retry on other nodes
+		  when the node throws any exeption.
+	  (kill_job): If the node can't be contacted, just mark the job as
+		  dead in the database.
+
+	* scripts/bb_jail: Add a --cleanup operation to remove unpacked
+		  jails with old versions.
+
+	* operations/PoBBOper.pm (make_temp_dir): Undefine here - it's in
+		  Ximian::Util now.
+
+	* lib/Ximian/BB/Jail/File.pm: Be a little smarter with jail
+		  locking: don't block, and allow the jail to be loaded
+		  even without the lock.
+
+	* lib/Ximian/BB/Jail/Dir.pm (export): Kill all processes when
+		  removing the jail.
+	  (kill_all_procs): new method, Dir jails only.
+
+	* lib/Ximian/BB/Logger.pm (logging_cb): Set umask to 0002.
+
+	* lib/Ximian/BB/Jail.pm (load_guess_multiple): Set the report
+		  level for when a jail can't be loaded to 4, to cut down
+		  the annoying chatter.
+
+	* lib/Ximian/BB/Build.pm (build_simple): Shutdown rcd at the end
+		  of the job.
+
+	* lib/Ximian/Util.pm (mkdirs_rec): Cosmetic change - tmp dirs
+		  don't say they are for "bb_jail_copy".
+
+	* lib/Ximian/Run.pm: Set default log_step to 1, and
+		  subprocess_flag to 0.
+
+2004-05-27  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_do (do_dist_rpm): On rhel-.*-x86_64, hardcode the
+		  brp-compress path to /usr/lib, because %_libdir expands
+		  to /usr/lib64.  We may need to do this on all x86_64
+		  targets, but it's rhel-specific for now.
+
+	* conf/os.conf: Changes for x86_64 (opteron) support.
+		  configure/autogen now uses --libdir option.
+
+2004-05-14  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_node (kill_job): For now, disable destroying the jail
+		  completely.  It's slow, and often unwanted.
+
+	* lib/Ximian/BB/Jail/RCD.pm (shutdown): Runs 'rug shutdown'.
+
+	* lib/Ximian/BB/Build.pm (build_simple): Shut down rcd after
+		  building.
+
+	* lib/Ximian/Run.pm (process_reaper): Really, don't try to check
+		  up on processes that haven't started yet.
+
+2004-05-13  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/Run.pm (process_reaper): don't remove the context
+		  from @contexts here, do it in the sigalrm handler
+		  instead, and use the reaped flag instead of the pid, to
+		  avoid a race condition.
+
+	* BB.pm: New version: 1.4.2.
+
+	* web/webroot/report/all_jobs.html: Add the ability to reduce the
+		  query depending on the modules list (by using
+		  'modules_like' in the url and providing a 'like' query).
+
+	* scripts/bb_do (do_dist_rpm): Add preinst (%pre) script support.
+
+	* lib/Ximian/BB/Jail/RCD.pm (restart): New method to restart the
+		  daemon.
+
+	* lib/Ximian/BB/Jail/Dir.pm (export): Copy in the host's
+		  resolv.conf into the exported jail.  We may need some
+		  better infrastructure for doing this kind of thing in
+		  the future, but here it is for now.
+
+	* lib/Ximian/BB/Logger.pm (logging_cb): Fix a typo.
+
+	* lib/Ximian/BB/Build.pm (setup_rcd): Restart the daemon before
+		  doing anything.
+	(build_simple): Set $HOME when submitting packages--just in
+		case.  Some other minor submission changes for direct
+		push mode.
+
+2004-05-10  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/BB/Jail/RCD.pm (start_daemon): Start rcd with the
+		  --no-services option.
+	(add_service): Check the return value of rug, we can fail if the
+		service is already added now that we use --no-services.
+
+2004-05-07  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_snapshotter: Parse the "base" args set, to get -v.
+
+	* scripts/bb_node (build_simple): Unlock the source jail after
+		  we're done unpacking.
+
+	* scripts/bb_jail_meta: Catch errors, print them, and keep
+		  operating on all the jails.
+
+	* lib/Ximian/BB/Auth.pm (authenticate): Return the key.
+
+2004-05-06  Dan Mills  <thunder@ximian.com>
+
+	* Makefile.PL: Add bb_jail_meta and bb_schema_upgrade_1.4.
+
+	* MANIFEST: Remove a temp css file that snuck in there.
+
+2004-05-05  Dan Mills  <thunder@ximian.com>
+
+	* conf/os.conf: Set the correct regexp for suse-91-i586.
+
+	* scripts/bb_node (build_simple): Set the report level for most
+		  node messages to 2 (the default level).
+
+	* MANIFEST: Added bb_jail_meta and bb_schema_upgrade_1.4
+
+	* BB.pm: Change VERSION to 1.4.1.
+
+	* web/webroot/submit/update_cache.pl: Don't assume the services
+		  array has been set when munging it later.
+
+	* web/webroot/submit/submission_results.html: Make a new row for
+		  every jobid/target (or target/error) pair.
+
+	* web/webroot/submit/new_job.pl: When an error was caught,
+		  stringify it before putting it in the session, so it
+		  can be properly serialized.
+
+	* scripts/bb_snapshotter: Small fix - misnamed variable.
+
+	* scripts/bb_snapshot: Ask for untainted jails for every job.
+
+	* scripts/bb_schema_upgrade_1.4: Script to update the schema from
+		  BB 1.2 to BB 1.4.
+
+	* scripts/bb_master (build_simple): The master is no longer
+		  completely retarded, rejoice! (it no longer tries to
+		  schedule a job on every node at once).
+
+	* scripts/bb_jail_meta: Simple script to get/set jail metadata.
+
+	* scripts/bb_jail: Add a --copy (-c) option to copy a jail.
+
+	* lib/Ximian/BB/Jail/Dir.pm (umount): Smarter unmounting, makes
+		  sure the mount is gone by looping.  Uses
+		  get_cmd_output, so we get stderr as well.
+
+	* lib/Ximian/BB/DB/SavedJob.pm (update_saved_job): always set the
+		  cvsversion, so the user can set it to an empty string.
+		  Deal with the modules a little differently--delete as a
+		  class method in Class::DBI is deprecated, so use an
+		  iterator.
+
+	* lib/Ximian/BB/Scheduler.pm (schedule): use defaults for
+		  min_disk/max_jobs when the caller passes in empty values.
+
+	* lib/Ximian/BB/Jail.pm (load_guess): Die immediately if no jail
+		  path was given.
+
+	* lib/Ximian/BB/Auth.pm: Generate a new key if the user has a
+		  valid timestamp, but the stored key is blank.
+
+	* lib/Ximian/Util.pm: Add a make_temp_dir function.
+
+	* doc/relnotes-1.4: Add platform support matrix.
+
+	* conf/sql/log.sql: saved_job_rcd_activations now has an aid
+		  column (type serial).  Postgres makes the sequence as
+		  'saved_job_rcd_activatio_aid_seq', so.. we'll use that.
+		  Also, insert a default (blank) value for the admin email.
+
+2004-05-02  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/submit/update_cache.pl: don't erase the services
+		  hash every time update_cache is called, only when
+		  there's a new services array coming in.
+
+2004-04-30  Dan Mills  <thunder@ximian.com>
+
+	* Makefile.PL: bb_jail_{unpack,destroy,restart} will not be
+		  installed anymore (but they still come with the
+		  distribution, for now).  Install bb_jail and
+		  bb_jail_convert in their place.
+
+2004-04-30  Adam Jacob  <adam@infospace.com>
+
+	* conf/bb.conf: Added the <author> section to make it more obvious
+		  that someone other than Ximian, Inc. can be the author in 
+		  Changelog.xml.
+
+2004-04-30  Dan Mills  <thunder@ximian.com>
+
+	* MANIFEST: Added the latest web files.
+
+	* BB.pm: Change VERSION to 1.4.  Yow!
+
+	* web/webroot/template/tables.css: A few classes that add
+		  specific features to tables (such as sorting, a ruler,
+		  striping, etc).  They can be accessed by adding classes
+		  to the table, e.g., <table class="list sortable ruler">
+
+	* web/webroot/template/style.css: Classes for specific tables are
+		  almost gone, replaced by the generic classes in
+		  tables.css.  The default font-family is "lucida grande"
+		  now, and the default size is 8pt (pt, not px!).
+
+	* web/webroot/template/standard.mhtml: Add the tables stylesheet
+		  globally, change the Ximian copyright to Novell, and
+		  add a link to the About page in the footer.
+
+	* web/webroot/template/job-submit.css: css for the job submission
+		  pages.
+
+	* web/webroot/submit/submission_results.html: Update for new
+		  stylesheet work.
+
+	* web/webroot/submit/saved.html: Update for new stylesheet work.
+
+	* web/webroot/submit/new.html: Update for new stylesheet work.
+
+	* web/webroot/shared/sorttable.js: Switched to a modified version
+		  of the original sorttable.js by Ian Bicking.  Added a
+		  small fix to it, to not sort the table footer.
+
+	* web/webroot/shared/job_submit.js (get_css_class): We have
+		  multiple stylesheets now, so we need to iterate over them.
+
+	* web/webroot/report/running_jobs.html: Update for new stylesheet work.
+
+	* web/webroot/report/nodes.html: Update for new stylesheet work.
+
+	* web/webroot/report/jobinfo.html: Update for new stylesheet work.
+
+	* web/webroot/report/all_jobs.html: Update for new stylesheet work.
+
+	* doc/relnotes-1.4: Added more notes.
+
+2004-04-29  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/about.html: A little about message, with authors
+		  and version info.
+
+	* web/webroot/admin/msg/jobdel.html: Nicer message.
+
+	* scripts/bb_unpack: fix - use Ximian::Run.
+
+	* scripts/bb_node (build_simple): Set log_step to 10 seconds.
+
+	* scripts/bb_logger (job_finish): Removed $description and $args
+		  arguments, they are unused.
+
+	* scripts/bb_jail_convert: Add documentation, usage, and set
+		  extra options (rcd, mounts).
+
+	* lib/Ximian/BB/Jail/Session.pm (get_cmd_output): Honor the
+		  ignore_errors option.
+
+	* lib/Ximian/BB/Jail/RCD.pm (add_service): The rug option is
+		  "service-add", not "--service-add".  Also, don't check
+		  for the exit code, because adding a service we already
+		  have is an error--which we want to ignore.
+
+	* lib/Ximian/BB/Jail/Dir.pm (export): Unmount filesystems before
+		  exporting, then mount them again.
+
+	* lib/Ximian/BB/DB/SavedJob.pm (load_saved_job): When loading the
+		  module settings, ignore empty settings, so that the
+		  default settings can take precedence (i.e., don't set
+		  them to empty strings).
+
+	* lib/Ximian/BB/Logger.pm (job_update): We don't use the
+		  $description, or $args arguments, so remove them (this
+		  gets rid of Frontier::RPC warnings.
+
+	* lib/Ximian/BB/Jail.pm (lock): Don't add the pid to the
+		  lockfile, because we often lock/unlock in different
+		  processes.
+
+	* lib/Ximian/Util.pm (lock_acquire): Add an option to not use the
+		  pid in the lock filename.
+
+	* lib/Ximian/Run.pm (get_cmd_output): Add an ignore_errors option.
+
+	* web/webroot/submit/update_cache.pl: The rcd_activate_array
+		  inputs now have a service in them.  But since they are
+		  keys in a hash, order is not guaranteed--so we parse
+		  them, and then re-order them after we've looked at all
+		  the keys.
+
+	* web/webroot/submit/edit_rcd_activations.html: The activations
+		  are now inside services.  The format expected in the
+		  input boxes is now "url : email : key".
+
+	* scripts/bb_node: Only start the daemon if we successfully
+		  created a daemon object.
+
+	* lib/Ximian/BB/Jail/RCD.pm (activate_key): Can now activate only
+		  one key at a time.  Now has an option to not refresh,
+		  as well.
+	(add_service): Interface for rug --service-add.
+
+	* lib/Ximian/BB/DB/SavedJob.pm: Added a class for the new services
+		  table, and added the load/save bits for it.
+		  Activations are now in a hash inside services.
+
+	* lib/Ximian/BB/Build.pm (setup_rcd): Add services, and include
+		  the service url when activating.  Print the services
+		  after the setup, as well.
+
+	* doc/xml-rpc-reference: Documented the services change.
+
+	* conf/sql/log.sql: Added a services table, and added a service
+		  id (sid) to the activations table.
+
+2004-04-28  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/template/style.css: Add styles for the
+		  submission_results page.
+
+	* web/webroot/submit/update_cache.pl: Add some sweetness to parse
+		  the jail_grep_queries data from the edit page.
+
+	* web/webroot/submit/submission_results.html: Display submission
+		  results, both new jobids, and any errors.
+
+	* web/webroot/submit/new_job.pl: Collect success/errors for each
+		  job submitted, and redirect to the submission_results page.
+
+	* web/webroot/submit/new.html: Add a link to the grep_queries page.
+
+	* web/webroot/submit/edit_jail_grep_queries.html: A page to edit
+		  jail requirements for jobs.
+
+	* web/webroot/shared/sorttable.js: Make the submission_results
+		  tables sortable.
+
+	* scripts/bb_node: Jail "features" are now "grep queries".  The
+		  xml-rpc option is "jail_grep_queries", a listref of
+		  hashes with jail_grep() options.  jail_grep_features is
+		  no more, as it was.. too big for nothing.
+
+	* lib/Ximian/BB/DB/SavedJob.pm: Added a class for the new queries
+		  table, and added the load/save bits for it.
+
+	* doc/xml-rpc-reference: Added docs for modifying the API /
+		  webui, and also added docs for jail_grep_queries.
+
+	* conf/sql/log.sql: Add the saved_job_jail_grep_queries table, to
+		  store jail requirements for job scheduling.
+
+2004-04-28  Adam Jacob  <adam@infospace.com>
+
+	* MANIFEST: Added scripts/bb_get_lwp.
+
+	* Makefile.PL: Added scripts/bb_get_lwp to EXE_FILES.
+
+	* scripts/bb_do: Added support for bb_get_lwp, including checking
+	      for the source file properly, and printing out the proper
+	      Source line in the resulting spec file.
+
+	* scripts/bb_get_lwp: bb_get_lwp allows you to specify HTTP/FTP
+	      url's in ximian-build.conf, enabling you to retrive source
+	      from the web.
+
+	* scripts/bb_unpack: Enabled bb_unpack to properly call bb_get_lwp
+	      for HTTP/FTP source lines in ximian-build.conf, and properly
+	      clean up after itself for source lines of this type.
+
+2004-04-28  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/template/style.css: Set styles for the navigator,
+		  as well as the sorttable.js sortarrow.
+
+	* web/webroot/template/standard.mhtml: Add sorttable.js.
+
+	* web/webroot/submit/saved.html: Add an id to the table,
+		  so that sorttable.js can use it.
+
+	* web/webroot/submit/new_job.pl: update_job function moved to
+		  SavedJob.pm.
+
+	* web/webroot/submit/new.html: Add min disk, and max jobs.
+
+	* web/webroot/submit/load_saved.pl: Update for the SavedJob.pm
+		  changes.
+
+	* web/webroot/report/running_jobs.html: Add an id to the table,
+		  so that sorttable.js can use it.
+
+	* web/webroot/report/nodes.html: Add an id so sorttable.js can
+		  use it.  Also, add a "Last Update" column.
+
+	* web/webroot/report/nodeinfo.html: Link unpacking jobs to the
+		  jobinfo page.
+
+	* web/webroot/report/log_files.mhtml: Change for the slightly
+		  different log output from the daemon.
+
+	* web/webroot/report/index.html: display=25 is the default, so
+		  no need to add it here.
+
+	* web/webroot/report/all_jobs.html: Add a "navigator" to go
+		  back/forward in the job list.  Don't auto-refresh
+		  unless we're looking at the current (latest) jobs.
+
+	* web/webroot/admin/msg/jobdel.html: Message for when a user
+		  kills a job.
+
+	* web/webroot/admin/node.pl: kill_jail -> destroy_jail.
+
+	* web/webroot/admin/job.pl: Require login via %attr.
+
+	* web/webroot/account/error/user_not_registered.html: Error page
+		  for when a user tries to make an account without being
+		  logged in.
+
+	* web/webroot/account/create.pl: authclient->new_user now
+		  requires us to authenticate and to be authorized.
+
+	* web/webroot/index.html: Link all_jobs.html without the
+		  'display' option (it defaults to 25 anyway).
+
+	* scripts/bb_unpack (get_cvs_object): Use run_cmd instead of system.
+
+	* scripts/bb_test_jail_rcd: Testing script for the rcd object.
+
+	* scripts/bb_test_jail_grep: Testing script for jail grepping.
+
+	* scripts/bb_snapshotter (run_snaps): get_saved_job_info is now
+		  Ximian::BB::DB::SavedJob::load_saved_job.  Also,
+		  re-authenticate more regularly, to avoid having it expire.
+
+	* scripts/bb_node: Use our Frontier::Daemon fork, so that we can
+		  restart the service after SIGALRM/SIGCHLD stop it.
+		  Added a jail_create_threshold option, if we have more
+		  free disk than that, we will make extra jails after a
+		  job is done.  Added "jail features", collection of
+		  xpath -> text statements, as requirements for the jail
+		  to be unpacked.  The node now determines if it can
+		  unpack a jail (or acquires an existing one), and
+		  returns, so the master can reschedule if necessary.
+		  Killing jobs/destroying jails is now done in the
+		  background.
+
+	* scripts/bb_master (build_simple): The jobid is acquired here
+		  now, not in the node, and the master loops over all the
+		  nodes returned by the scheduler, until it finds one
+		  that can unpack a suitable jail.
+
+	* scripts/bb_logger (job_update): Added the ability to update the
+		  nodeid of a job (so the master can reassign a job if a
+		  node rejects it).
+	  (job_start): verify_key -> authorize (Auth.pm changes).
+
+	* scripts/bb_jail_convert: Added command-line options, some help,
+		  and the ability to convert directly to a "dir"-type jail.
+
+	* scripts/bb_jail: Add an --info option, to print information
+		  about a single jail.
+
+	* scripts/bb_do (do_dist_rpm): Get the Vendor string from the
+		  conf / bb.conf, instead of hardcoding it to "Ximian, Inc.".
+
+	* scripts/bb_client: Sort targets when printing them.
+
+	* scripts/bb_authserver: Change to match Auth.pm changes.
+
+	* lib/Ximian/Web/MasonHandler.pm (handler): Fix for new Mason
+		  version.
+	Reported by Adam Jacob <adam.jacob@infospace.com>
+
+	* lib/Ximian/BB/Jail/Session.pm (run_cmd): Improve interface to
+		  match run_cmd a bit better, while allowing for some
+		  shortcuts.  Also, keep track of the cwd.
+
+	* lib/Ximian/BB/Jail/RCD.pm: Object to deal with starting/running
+		  rug and rcd in a jail.
+
+	* lib/Ximian/BB/Jail/Metadata.pm: Added xpath support.
+
+	* lib/Ximian/BB/Jail/File.pm: Same changes as Dir.pm.
+
+	* lib/Ximian/BB/Jail/Dir.pm: Use 'file' to check the path before
+		  loading, for some basic sanity checking.  Relax the
+		  locking a bit, to allow an object to be created from a
+		  locked jail (for reading/copying).
+
+	* lib/Ximian/BB/DB/User.pm: Users have an email field now.  Added
+		  a UserCapability class for the user_capabilities table.
+
+	* lib/Ximian/BB/DB/SavedJob.pm: Ximian::BB::DB::SavedJob::Loader
+		  was merged into this file.  saved jobs now have
+		  min_disk and max_jobs.
+
+	* lib/Ximian/BB/DB/Node.pm: NodeTarget's nodeid no longer gets
+		  inflated into a Node object (that messes up cdbi).
+
+	* lib/Ximian/BB/Submit.pm (split_targets): Don't use munge_job,
+		  in favor of Storable's dclone.
+
+	* lib/Ximian/BB/Logger.pm (logging_cb): The old logging routines
+		  are gone, replaced by a single one: logging_cb.  This
+		  is a callback for use with Ximian::Run and
+		  Ximian::BB::Jail::Session, and knows how to make
+		  specialized log files for the daemon.
+
+	* lib/Ximian/BB/JailUtil.pm (jail_grep): Allow use of XPath
+		  queries to match with text for the grep.  When the
+		  XPath query matches multiple nodes, we match if the
+		  text matches any of the nodes.  the "val" key is now
+		  "text".
+
+	* lib/Ximian/BB/Jail.pm: We now require a "main" metadata to
+		  exist.  destroy() is no longer async by default--
+		  instead, there is a destroy_async() method.
+		  get_metadata() now does return the actual metadata
+		  object, there is get_metadata_tree to just get the
+		  parsed tree.  in lock(), spin-locks are disabled,
+		  because they use sleep(), which doesn't work well with
+		  Ximian::Run.
+
+	* lib/Ximian/BB/Cvs.pm: get_module takes a session now to run the
+		  cvs command in.  The directory is no longer required,
+		  the session does the pushd/popd for us.
+
+	* lib/Ximian/BB/Changelog.pm (update_changelog): Set LANG to "C"
+		  before executing subprocesses we parse the output of.
+
+	* lib/Ximian/BB/Build.pm: Bulk of the low-level RCD code moved to
+		  Ximian::BB::Jail::RCD.  log_command is not used
+		  anymore, we now use a session tied to our jail, and
+		  call run_cmd on it.  As a result, we no longer chroot
+		  directly, the session takes care of that for each
+		  command we run in the jail.  Also, We no longer install
+		  bb or the pipeline, and installing any extra packages is
+		  not mandatory.  RCD is assumed to be in the jail already.
+
+	* lib/Ximian/BB/AuthClient.pm: Change to match Auth.pm changes.
+
+	* lib/Ximian/BB/Auth.pm: verify_key is now called authorize, and
+		  takes a capability.  Also, when a user has a valid auth
+		  token and authenticates again, the same token is
+		  returned.  This allows several clients to be used at once.
+
+	* lib/Ximian/Sighandler.pm: Rename run_cmd variables to _system.
+
+	* lib/Ximian/Run.pm: Huge changes here.. AsyncRun.pm was merged
+		  in, and run_cmd is now a special case of the async
+		  version (where we wait until the subprocess is done
+		  before returning).  Both use the function that was
+		  previously called run_cmd--now renamed to _system.  It
+		  is used only for interactive command protection.
+
+	* lib/Ximian/RPCDaemon.pm: (sigh) Fork of Frontier::Daemon,
+		  hopefully temporary.  This adds the ability to return a
+		  daemon object, which can then be stopped and resumed.
+		  This is necessary because of the signals generated by
+		  Ximian::Run.
+
+	* lib/Ximian/AsyncRun.pm: Gone, functionality moved into Run.pm.
+
+	* init.d/bb_master: Create a wwwrun user in postgresql.
+
+	* doc/xml-rpc-reference: Updated for the latest api changes:
+		  extra_jail_deps_dir, min_disk, max_jobs,
+	          verify_key -> authorize.
+
+	* doc/relnotes-1.4: Release notes for 1.4 (draft).
+
+	* conf/sql/log.sql: jobs.uid must be NOT NULL, added an email
+		  field to the users table, min_disk/max_jobs fields
+		  to the saved_jobs table.  Also added a number of new
+		  capabilities, and an 'admin' user.
+
+	* MANIFEST: Added a bunch of new files to the distribution.
+
+2004-04-22  Miguel Ibarra  <mibarra@ximian.com>
+
+	* operations/BasicBBOper.pm: Added a list_patches operation.
+
+2004-04-20  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_do (do_dist_rpm): Override %__spec_build_pre on
+		  sles-9 as well, so that it doesn't rm -rf $DESTDIR.
+
+	* conf/os.conf: add SLES 9 entry.
+
+	* scripts/distribution.guess (check_suse): Check for new SLES 9
+		  SuSE-release string.
+
+2004-04-08  Dan Mills  <thunder@ximian.com>
+
+	* scripts/bb_node (build_simple): mark jails as tainted after we
+		  build in them.  Only remove the jail if we are low on
+		  HD space (as defined by --jail_delete_threshold).
+
+	* lib/Ximian/BB/Jail/Dir.pm: die if save() or reload() are called
+		  after enter().  Added mount() and umount(), to deal
+		  with bind-style mounts in the jail.  The mounts are
+		  kept in the jail metadata.
+
+	* lib/Ximian/BB/Cvs.pm: get_build_system and get_release_pipeline
+		  are gone, they are no longer useful.  get_module now
+		  throws exceptions instead of returning zero.
+
+	* lib/Ximian/BB/Build.pm: Update to work with new jails.  Also,
+		  now throws exceptions instead of calling the logger &
+		  returning non-zero.
+
+2004-04-07  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/BB/Scheduler.pm: Return all matching nodes when
+		  scheduling, so that the master can try another possible
+		  node if a job is rejected.
+
+	* scripts/bb_node(targets): Add reporting.
+	  (get_jail): New function, gets a new jail matching the given
+		  criteria.
+	  (build_simple): Use AsyncRun.pm to do the async work.  This
+		  function still needs some work...
+	  (main): Run the server in a loop, so that we can interrupt via
+		  SIGALRM for AsyncRun and have the server resume (well,
+		  restart) after that.
+
+	* scripts/bb_master (build_simple): Pass min_disk and max_jobs to
+		  the scheduler from the xml-rpc data.
+
+	* scripts/bb_logger: use gmtime instead of Time::Piece->new.
+
+	* scripts/bb_jail (jail_search): Moved to JailUtil.pm.
+
+	* scripts/bb_client: Added --query, to get some basic info about
+		  the master/nodes.  Added --max_jobs (defaults to 4) and
+	          --min_disk (defaults to ~1G), to set node requirements
+		  for the scheduler.  Added back --debug, defaults to 2. 
+
+	* lib/Ximian/BB/Jail/File.pm (DESTROY): Fix a huge bug where
+		  exceptions were going into a black hole, by making $@
+		  local to the destructor.
+	  (export): Really check if the new location has files, and only
+		  error then.
+	  (get_cache_dir): Added reporting.  Byte-shift the mktemp exit
+		  code instead of dividing it.  Save cache dir to a
+		  scalar, chomp, then save--chomping $self->{cache}
+		  doesn't seem to work right.
+	  (destroy_cache_dir):  Huge fix--really destroy now.  Also, added
+		  reporting.
+
+	* lib/Ximian/BB/Jail/Dir.pm (reload): Allow a Handle for a path.
+	  (export): Allow a Handle object as well.
+
+	* lib/Ximian/BB/JailUtil.pm (jail_search_target): New function.
+		  Returns jails that match a given target.  Also, added
+		  docs to the whole file.
+
+	* lib/Ximian/BB/Jail.pm (unlock): Return 1 when the lock was
+		  actually removed, or 0 otherwise.
+
+	* lib/Ximian/Util.pm (parse_args_set): --master shortcut is now
+		  -M (not -m), to match the --masterport (-P) option.
+	  (human_readable_num): New function, prints numbers in nice
+		  formats (e.g., "128M", "446K", etc).
+
+	* lib/Ximian/Run.pm (run_cmd): Small reporting fix.
+
+	* scripts/bb_build (process_module): Set $conf->{os_serial} so it
+		  can be replaced as a macro.
+
+	* operations/BuildBBOper.pm (install_deps): run macro_replace to
+		  replace macros in the build deps.
+
+	* lib/Ximian/AsyncRun.pm (run_cmd_async): Don't set the alarm if
+		  the log_step is 0.  It is then the caller's job to run
+		  the sigalrm handler to handler.  Also, allow a run
+		  callback to be set instead of a command to run.
+
+2004-04-02  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/report/nodeinfo.html: Add start_time to the running
+		  jobs list.  Optimize the old jails query by limiting the
+		  search to the last 20 jobs.  This means we won't find
+		  every old jail, but it's orders of magnitude faster.
+
+2004-04-01  Dan Mills  <thunder@ximian.com>
+
+	* Friend.make (install-friends): chmod the init.d and daemontools
+		  run scripts to 755.
+
+	* lib/Ximian/BB/Master.pm (update_nodes_info): Use gmtime instead
+		  of making a new Time::Piece.
+
+	* scripts/bb_node: Initial work to make the node use the new
+		  jails.
+
+	* scripts/bb_master: When node registration fails, raise an
+		  exception that makes sense--suggesting the DB is down.
+
+	* scripts/bb_jail_convert: Make the temp directory where the jail
+		  is, not where we currently are.  Also, when getting the
+		  target out of the filename, take out any leading path.
+
+	* scripts/bb_jail: Print the jail version when listing jails.
+
+	* lib/Ximian/BB/JailUtil.pm (jail_unique_targets): use strict --
+		  declare variables to make them lexicals.
+
+	* lib/Ximian/BB/Jail.pm (load_guess_multiple): Print errors when
+		  loading jails (but do catch the exception--simply ignore
+		  the failed jail and move on).
+
+	* lib/Ximian/Util.pm (parse_args_set): Split "daemon-client" into
+		  "userpass" and "master".
+
+	* lib/Ximian/BB/Auth.pm (new_user): Deal with timezones correctly
+		  (by using gmtime).
+	Patch by Adam Jacob <adam.jacob@infospace.com>
+
+	* scripts/bb_logger: Don't use FindBin, or Cwd.
+
+	* scripts/bb_client: Add the --node option, to bypass the
+		  scheduler.
+
+	* lib/Ximian/BB/Scheduler.pm: Set the host query correctly
+		  when there is a request for a particular node.
+
+	* lib/Ximian/Sys.pm: Set the language to "C" before executing
+		  external utilities.
+
+2004-03-31  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/BB/Build.pm (build_simple): When installing the
+		  build system and the pipeline, don't use the -u option
+		  to rug.  Job submissions must also subscribe to the
+		  ximian-release channel from now on.
+
+2004-03-31  Dan Reese  <dreese@novell.com>
+
+	* init.d/bb_master: Script now stops and starts bb_authserver as well.
+
+2004-03-30  Dan Mills  <thunder@ximian.com>
+
+	* conf/bb.conf: imagedir is now jaildir_src, and defaults to
+		  /jails/source
+
+	* scripts/bb_jail: Major additions--it's now useful :)
+
+	* scripts/bb_do: Always set %_use_internal_dependency_generator
+		  to 0
+
+	* lib/Ximian/BB/Jail/Serializable.pm: Allow objects to be
+		  serialized to any jail object (dir or file).
+
+	* lib/Ximian/BB/Jail/Metadata.pm (save): set noattr => 1.
+
+	* lib/Ximian/BB/Jail/File.pm (new): Implement.
+	  (reload): Allow calling without path option if $self->{path} is
+		set.  Call $self->SUPER::reload as well.
+	  (save): Implement.
+	  (new_metadata): Override the base class to get a new cache dir
+		  before trying to make the new metadata object.
+	  (get_cache_dir): Set $self->{object_path} and
+		  $self->{settings_path} after making the new cache dir.
+
+	* lib/Ximian/BB/Jail/Dir.pm: Move code to Jail.pm and call
+		  $self->SUPER::reload and $self->SUPER::save instead.
+
+	* lib/Ximian/BB/Jail.pm: Define reload and save methods that
+		  subclasses can call via $self->SUPER
+
+	* lib/Ximian/Util.pm: Add a "jaildir" parse_args set.
+
+	* lib/Ximian/SimpleTable.pm: Cosmetic fix.
+
+	* conf/os.conf: Recognize powerpc-apple-darwin7.3.x as 10.3
+
+2004-03-12  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/BB/Jail/Dir.pm (get_new_handle): Return a
+		  Ximian::BB::Jail::Dir::Handle object, not a simple
+		  string.
+	  (new): Accept an optional Ximian::BB::Jail::Dir::Handle object
+		  instead of a path string.
+
+	* scripts/bb_jail: Cleanup, added documentation.
+
+2004-03-11  Dan Mills  <thunder@ximian.com>
+
+	* lib/Ximian/Sighandler.pm: cosmetic fix.
+
+	* lib/Ximian/BB/Jail.pm: Added get_or_new_metadata method.
+
+	* lib/Ximian/BB/Jail/RCD.pm (run_cmd): run_cmd_noblock
+		  renamed to run_cmd_async
+
+	* lib/Ximian/BB/Jail/Session.pm (run_cmd): run_cmd_noblock
+		  renamed to run_cmd_async
+
+	* lib/Ximian/BB/Jail/Dir.pm: run_cmd_noblock renamed to
+		  run_cmd_async.
+
+	* lib/Ximian/Run.pm: Moved run_cmd_noblock to its own module.
+
+	* lib/Ximian/AsyncRun.pm: Initial checkin.  Async subprocess
+		  handling.
+
+	* conf/os.conf: Add a suse-91-i586 section.
+
+	* scripts/bb_do (do_dist_rpm): Override %__spec_build_pre on
+		  suse-91-i586, because it runs rm -rf $DESTDIR, which
+		  doesn't jive well with the way we use rpm.
+
+2004-03-10  Dan Mills  <thunder@ximian.com>
+
+	* conf/bb.conf: Add <jaildir> and <imagedir>.
+
+	* doc/xml-rpc-reference: Add some developer notes, and some
+		  missing interfaces--specially to the authserver.
+
+	* lib/Ximian/Run.pm: Added run_cmd_noblock, which forks and runs
+		  a command in the background.
+
+	* lib/Ximian/Util.pm: Added mkdirs, which makes a full directory
+		  path.  Also changed pushd/popd to work with relative
+		  paths.
+
+	* lib/Ximian/BB/Build.pm: Use status_do_sub (due to the rename).
+
+	* lib/Ximian/BB/Jail.pm: This file has been rewritten almost
+		  entirely.  It is now the base class for all jail
+		  objects.
+
+	* lib/Ximian/BB/JailUtil.pm: Initial checkin.  Useful routines
+		  for dealing with Jail objects.
+
+	* lib/Ximian/BB/Status.pm: status_do renamed to status_do_sub.
+		  There is a new status_do which uses trickery to allow
+	          an anonymous sub as the first argument.
+
+	* lib/Ximian/BB/DB/Node.pm: Added a has_a nodeid relation to the
+		  node_targets table.
+
+	* lib/Ximian/BB/Jail/Dir.pm: Initial checkin.  Class representing
+		  an unpacked jail in a directory.
+
+	* lib/Ximian/BB/Jail/File.pm: Initial checkin.  Class
+		  representing a jail bundled into a file.
+
+	* lib/Ximian/BB/Jail/Metadata.pm: Initial checkin.  Class for
+		  dealing with simple XML-backed metadata in the jails.
+
+	* lib/Ximian/BB/Jail/Serializable.pm: Initial checkin.  Base
+		  class for objects that can be serialized into jails.
+
+	* lib/Ximian/BB/Jail/Session.pm: Initial checkin.  A session
+		  object for executing commands inside jails.
+
+	* scripts/bb_jail: Initial checkin.  New script to manage jails.
+
+	* scripts/bb_master: Don't report targets from dead nodes.
+
+	* scripts/bb_node: Use status_do_sub (due to the rename).
+
+	* scripts/bb_submit: Add BB_REPOPORT support.
+        Patch submitted by Jon Trowbridge <trow@ximian.com>.
+
+2004-03-08  Dan Reese  <dreese@novell.com>
+
+	* doc/bb-manual.xml: Added section about updating a jail.
+
+2004-02-26  Dan Mills  <thunder@ximian.com>
+
+	* web/webroot/submit/update_cache.pl: The numbered variable names
+		  can have more than one digit, so use \d+ instead of \d.
+
+2004-02-11  Dan Mills  <thunder@ximian.com>
+
+	* doc/xml-rpc-reference: Document the subscribe portion of the
+		  build_simple call. Also, document the authserver's
+		  new_user and change_password calls.
+
+2004-02-10  Dan Mills  <thunder@ximian.com>
+
+	* conf/os.conf: add [[autogen]] and [[usrautogen]] macros, which
+		  mirror [[configure]] and [[usrconfigure]]
+		  (respectively), but run ./autogen.sh instead of ./configure.
+
+2004-02-09  Dan Mills  <thunder@ximian.com>
+
+	* conf/os.conf: remove extra (incorrect) pkg_config_path and
+		  aclocal_flags definitions for sld.
+
+2004-02-08  Dan Mills  <thunder@ximian.com>
+
+	* OpenCarpetBBOper.pm: Initial checkin.  bb_build operation to
+		  release packages via Open Carpet.
+	Patch by James Wilcox <snorp@ximian.com>

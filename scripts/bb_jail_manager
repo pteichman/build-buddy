@@ -1,0 +1,396 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: bb_node 3042 2005-10-17 22:29:01Z v_thunder $
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||""); $My::bin = $My::bin;
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+use strict;
+
+use RPC::XML;
+use RPC::XML::Server;
+use RPC::XML::Client;
+use Sys::Hostname;
+use Data::UUID;
+use MIME::Base64;
+
+use Ximian::Run ':all';
+use Ximian::Util ':all';
+use Ximian::Sys ':all';
+use Ximian::BB;
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Macros ':all';
+use Ximian::BB::Target ':all';
+use Ximian::BB::Status ':all';
+use Ximian::BB::Jail;
+use Ximian::BB::Jail::Dir;
+use Ximian::BB::JailUtil ':all';
+
+########################################################################
+
+my %args;
+my $daemon;
+
+# commandline in case we need to reexec ourselves
+my @reexec_cmd = (rel2abs ($0), @ARGV);
+
+########################################################################
+
+sub usage {
+    print STDERR <<EOF;
+usage: $My::bin [options]
+    options:
+	-h:	usage information
+	-d:	daemonize
+EOF
+    exit 1;
+}
+
+parse_args_set (\%args, "base");
+
+parse_args
+    (\%args,
+     [
+      {names => ["help", "h", "?", ""], run => \&usage},
+      {names => ["port",             "p"], type => "=i", default => 9000},
+      {names => ["pidfile"              ], type => "=s", default => ""},
+      {names => ["daemonize",        "d"], default => 0},
+      {names => ["sync",             "s"], default => 0},
+     ]);
+
+my $bbconf = get_bb_conf ();
+my $confdirs_ref = $bbconf->{dirs}->{config}->{i};
+@Ximian::BB::Globals::confdirs = macro_replace ($confdirs_ref, [$bbconf]);
+
+my ($packsys, $target) = $args{target}?
+    split (':', $args{target}) : detect_target ();
+$Ximian::BB::Globals::packsys = $packsys;
+$Ximian::BB::Globals::target = $target;
+
+my $osconf = get_os_conf ();
+
+$Ximian::BB::Globals::confs = [$osconf, $bbconf];
+
+my $jaildir = get_dir ("jaildir");
+my $srcjaildir = get_dir ("jaildir_src");
+
+########################################################################
+# Methods exported via XML-RPC
+
+sub targets {
+    my $server = shift;
+    my @jails = Ximian::BB::Jail->load_guess_multiple (dir => $srcjaildir);
+    my @ret = jail_unique_targets (@jails);
+    return \@ret;
+}
+
+sub source_jails {
+    my $server = shift;
+    my @jails = Ximian::BB::Jail->load_guess_multiple (dir => $srcjaildir);
+    my %ret;
+    foreach my $j (@jails) {
+	my $meta = eval {$j->get_metadata_tree ("main")};
+	next if $@;
+        my $path = $j->{path};
+        $path =~ s,.*/([^/]+)$,$1,;
+	$ret{$path} = $meta;
+    }
+    return RPC::XML::struct->new (\%ret);
+}
+
+sub jails {
+    my $server = shift;
+    my @jails = Ximian::BB::Jail->load_guess_multiple (dir => $jaildir);
+    my %ret;
+    foreach my $j (@jails) {
+	my $meta = eval {$j->get_metadata_tree ("main")};
+	next if $@;
+        if ($meta->{node_port}) {
+            my $nodeid = hostname . ":$meta->{node_port}";
+            my $rpc = RPC::XML::Client->new ("http://$nodeid/RPC2");
+            my $ret = $rpc->send_request ("ping");
+            if (ref $ret and not is_fault $ret) {
+                $meta->{nodeid} = $nodeid;
+            }
+        }
+        my $path = $j->path;
+        $path =~ s,.*/([^/]+)$,$1,;
+	$ret{$path} = $meta;
+    }
+    return RPC::XML::struct->new (\%ret);
+}
+
+sub unpack {
+    my $server = shift;
+    my ($source_name) = @_;
+    my $jailid = next_logid $jaildir;
+    my $source;
+
+    report (3, "Unpacking jail $jailid");
+
+    my @jails = Ximian::BB::Jail->load_guess_multiple (dir => $srcjaildir);
+    @jails = jail_grep (jails => \@jails, key => "name", text => $source_name);
+    die "Could not find source jail \"$source_name\"" unless @jails;
+    unless (scalar @jails == 1) {
+        reportline (2, "Warning: multiple source jails match name \"$source_name\"");
+    }
+    $source = $jails[0];
+
+    run_cmd_async ({run_cb => sub {
+        status_push ("Unpacking jail $jailid");
+        my $jail = Ximian::BB::Jail::Dir->new (path => "$jaildir/$jailid",
+                                               source => $source);
+	my $meta = $jail->get_metadata ("main");
+	my $tree = $meta->get_xml_tree;
+	$tree->{jailid} = $jailid;
+	$tree->{available} = "no";
+	$meta->set_xml_tree ($tree);
+	$meta->save;
+        status_pop;
+        exit 0;
+    }});
+
+    return $jailid;
+}
+
+sub destroy {
+    my $server = shift;
+    my ($jailid) = @_;
+    my $jail = Ximian::BB::Jail->load_guess (path => "$jaildir/$jailid");
+    eval {
+        $jail->destroy;
+    };
+    if (my $e = $@) {
+        reportline (1, "Could not destroy jail \"$jailid\": $e");
+        return 1;
+    }
+    return 0;
+}
+
+# TODO: possible improvement - automatically install the build system
+# into the jail, so it doesn't need to have it pre-installed.
+sub node_start {
+    my $server = shift;
+    my ($jailid) = @_;
+    my $jail = Ximian::BB::Jail->load_guess (path => "$jaildir/$jailid");
+    my ($port, $httpport);
+    eval {
+	my $meta = $jail->get_metadata ("main");
+	my $tree = $meta->get_xml_tree;
+	$tree->{node_port} = find_port ($tree->{node_port} || 9000); # FIXME: use jail metadata
+	$tree->{node_http_port} = find_port ($tree->{node_http_port} || $tree->{node_port} + 1);
+	$meta->set_xml_tree ($tree);
+	$meta->save;
+    };
+    if (my $e = $@) {
+        reportline (1, "Error stopping node in jail: $e");
+        return 1;
+    }
+    return run_cmd ("chroot $jaildir/$jailid /usr/bin/bb_node " .
+                    "-d -v $args{verbosity} -p $port -P $httpport");
+}
+
+sub node_stop {
+    my $server = shift;
+    my ($jailid) = @_;
+    my $jail = Ximian::BB::Jail->load_guess (path => "$jaildir/$jailid");
+    eval {
+	my $meta = $jail->get_metadata ("main");
+	my $tree = $meta->get_xml_tree;
+        my $rpc = RPC::XML::Client->new ("http://localhost:$tree->{node_port}/RPC2");
+        $rpc->send_request ("shutdown");
+    };
+    if (my $e = $@) {
+        reportline (1, "Error stopping node in jail: $e");
+        return 1;
+    }
+    return 0;
+}
+
+sub jail_set {
+    my $server = shift;
+    my ($jailid, $key, $value) = @_;
+    my $jail = Ximian::BB::Jail->load_guess (path => "$jaildir/$jailid");
+    eval {
+	my $meta = $jail->get_metadata ("main");
+	my $tree = $meta->get_xml_tree;
+	$tree->{$key} = $value;
+	$meta->set_xml_tree ($tree);
+	$meta->save;
+    };
+    if (my $e = $@) {
+        reportline (1, "Error setting jail metadata: $e");
+        return 1;
+    }
+    return 0;
+}
+
+# TODO: for a future version - some "smart" automated cleanup of
+# unused jails.
+sub cleanup {
+    my $server = shift;
+    return 1;
+}
+
+sub shutdown {
+    my $server = shift;
+    exit 0;
+}
+
+sub restart {
+    my $server = shift;
+    my $child = fork;
+    if ($child) { # parent
+	exit 0;
+    } else {
+	safe_sleep 5; # let the parent die
+	exec @reexec_cmd;
+    }
+}
+
+sub version {
+    my $server = shift;
+    return Ximian::BB::VERSION;
+}
+
+sub ping {
+    my $server = shift;
+    return 1;
+}
+
+########################################################################
+# XML-RPC Set-up
+
+my $srv = RPC::XML::Server->new (port => $args{port},
+				 timeout => 240); # be lenient
+$srv->compress_thresh(65536); # Set high, to avoid compression
+
+# Note: The 'signature' is composed of the return type (the first
+# thing in the signature), and the rest are the expected arguments.
+
+$srv->add_method ({name => "targets", code => \&targets, signature => ["array"]});
+$srv->add_method ({name => "source_jails", code => \&source_jails, signature => ["struct"]});
+$srv->add_method ({name => "jails", code => \&jails, signature => ["struct"]});
+
+$srv->add_method ({name => "unpack", code => \&unpack, signature => ["string string"]});
+$srv->add_method ({name => "destroy", code => \&destroy, signature => ["int string"]});
+$srv->add_method ({name => "node_start", code => \&node_start, signature => ["int string"]});
+$srv->add_method ({name => "node_stop", code => \&node_stop, signature => ["int string"]});
+$srv->add_method ({name => "jail_set", code => \&jail_set, signature => ["int string"]});
+
+$srv->add_method ({name => "cleanup", code => \&cleanup, signature => ["int"]});
+$srv->add_method ({name => "shutdown", code => \&shutdown, signature => [""]});
+$srv->add_method ({name => "restart", code => \&restart, signature => [""]});
+$srv->add_method ({name => "version", code => \&version, signature => ["string"]});
+$srv->add_method ({name => "ping", code => \&ping, signature => ["int"]});
+
+########################################################################
+# Main block
+
+die "You really should be running this as root.\n" if ($>);
+
+status_push ("listening");
+
+daemonize ("$args{workdir}/logs/bb_node") if ($args{daemonize});
+system ("echo \"$$\" >$args{pidfile}") if $args{pidfile};
+
+$SIG{PIPE} = "IGNORE"; # Ignore connection deaths
+
+$srv->server_loop; # Never returns
+
+exit 0;
+
+__END__
+
+=pod
+
+=head1 NAME
+
+B<bb_node> - build packages on-demand
+
+=head1 SYNPOSIS
+
+ bb_node
+
+=head1 DESCRIPTION
+
+B<bb_node> is a simple XML-RPC layer for build-buddy.  It runs inside
+a build jail as a daemon, and executes bb_build operations for a given
+project file on-demand.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --help (-h)
+
+Print some basic usage information.
+
+=item --port (-p) <port>
+
+Port number to run the daemon on.  Default is first open port after
+9000.
+
+=item --httpport (-P) <port>
+
+Port number to run the file server daemon on.  Default is first port
+open after the node daemon port.
+
+=item --workdir (-w) <directory>
+
+Directory where bb_node will do all its work.  Defaults to
+/tmp/bb_node.
+
+=item --pidfile <file>
+
+If given, a file to write the PID of the daemon to.
+
+=item --daemonize (-d)
+
+Background the process to run as a daemon.
+
+=item --sync (-s)
+
+Do not use asynchronous XML-RPC calls.
+
+=back
+
+=head1 AUTHORS
+
+Peter Teichman <peter@ximian.com>
+Dan Mills <thunder@ximian.com>
+
+=head1 COPYRIGHT
+
+Copyright 2000-2002 Ximian, Inc. <distribution@ximian.com>.  All
+rights reserved.
+
+=cut

@@ -1,0 +1,285 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# Fills the directory full of documentation suitable for synapse.
+
+use Env;
+use File::Find;
+
+use FindBin;
+use lib "$FindBin::RealBin/../lib";
+
+use Ximian::Util ':all';
+use Ximian::Run ':all';
+
+########################################################################
+
+sub usage {
+    print STDERR <<EOF;
+usage: bb_authserver [-hd]
+    options:
+	-h:	usage information
+	-d:	daemonize
+EOF
+    exit 1;
+}
+
+my %args;
+parse_args_set (\%args, "base");
+parse_args
+    (\%args,
+     [
+      {names => ["help", "h", "?", ""], run => \&usage},
+      {names => ["bbdir",  "d"], type => "=s", default => "$FindBin::RealBin/.."},
+      {names => ["outdir", "o"], type => "=s", default => "html-docs"},
+      {names => ["scp_to"     ], type => "=s", default => ""},
+      {names => ["scp_cmd"    ], type => "=s",
+       default => "$FindBin::RealBin/bb_scp"},
+      {names => ["scp_opts"    ], type => "=s", default => ""},
+      ]);
+
+$args{bbdir} = get_realpath ($args{bbdir});
+mkdirs $args{outdir};
+pushd $args{outdir};
+
+########################################################################
+
+my @textdocs = dirgrep { ! (/^\./ or /^CVS$/ or /(html|xml)$/) } "$args{bbdir}/doc";
+my @dtds = dirgrep { (! /^\./) and /\.dtd$/ } "$args{bbdir}/conf/dtd";
+my @scripts = dirgrep { ! (/^\./ or /^CVS$/) } "$args{bbdir}/scripts";
+my @opers = dirgrep { ! (/^\./ or /^CVS$/) } "$args{bbdir}/operations";
+my @logstyles = dirgrep { ! (/^\./ or /^CVS$/) } "$args{bbdir}/logstyles";
+my @libs;
+pushd "$args{bbdir}/lib";
+find (sub { /\.pm$/ && push @libs, $File::Find::name }, ".");
+$_ =~ s/^..(.*)$/$1/ foreach (@libs);
+popd;
+
+@textdocs = sort @textdocs;
+@dtds = sort @dtds;
+@scripts = sort @scripts;
+@opers = sort @opers;
+@logstyles = sort @logstyles;
+@libs = sort @libs;
+
+########################################################################
+# Write the index
+
+reportline (2, "Creating index");
+
+my @foo;
+push @foo, "<li><a href=\"doc/TODO.html\">TODO</a></li>\n";
+push @foo, "<li><a href=\"doc/$_.html\">$_</a></li>\n" foreach (@textdocs);
+my @bar;
+push @bar, "<li><a href=\"dtds/$_.html\">$_</a></li>\n" foreach (@dtds);
+my @baz;
+push @baz, "<li><a href=\"scripts/$_.html\">$_</a></li>\n" foreach (@scripts);
+my @quux;
+push @quux, "<li><a href=\"operations/$_.html\">$_</a></li>\n" foreach (@opers);
+my @quuux;
+push @quuux, "<li><a href=\"logstyles/$_.html\">$_</a></li>\n" foreach (@logstyles);
+my @quuuux;
+foreach my $lib (@libs) {
+    $copy = $lib;
+    $copy =~ s/\//_/g;
+    push @quuuux, "<li><a href=\"lib/$copy.html\">$lib</a></li>\n";
+}
+
+
+open INDEX, ">index.html";
+print INDEX <<EOF;
+<html>
+<head>
+<title>Build Buddy Docs</title>
+<link rel="stylesheet" href="/~thunder/bb/style.css">
+<link rel="stylesheet" href="/~thunder/bb/layout.css">
+</head>
+<body>
+
+<div id="document">
+    <div id="header"><h1>Build Buddy Documentation</h1></div>
+    <div id="center">
+        <h3>BB Manual</h3>
+        <ul>
+            <li><a href="manual/txt/bb-manual.txt">Plaintext</a></li>
+            <li><a href="manual/xhtml/index.html">HTML - By chapter</a></li>
+            <li><a href="manual/xhtml-nochunks/bb-manual.html">HTML - All in one</a></li>
+            <li><a href="manual/xml/bb-manual.xml">Docbook XML</a></li>
+        </ul>
+
+        <h3>Design / Developer Notes</h3>
+        <ul>
+@foo
+        </ul>
+
+        <h3>DTDs</h3>
+        <ul>
+@bar
+        </ul>
+
+        <h3>Scripts</h3>
+        <ul>
+@baz
+        </ul>
+
+        <h3>bb_build Operations</h3>
+        <ul>
+@quux
+        </ul>
+
+        <h3>bb_snapshot Logstyles</h3>
+        <ul>
+@quuux
+        </ul>
+
+        <h3>Libraries</h3>
+        <ul>
+@quuuux
+        </ul>
+    </div>
+    <div id="footer"><p>Copyright (C) 2004 Novell, Inc.</p></div>
+</div>
+
+</body>
+</html>
+EOF
+close INDEX;
+
+########################################################################
+# Manual
+
+reportline (2, "Generating manual");
+
+mkdirs "manual/xml";
+my $man = "$args{bbdir}/doc/bb-manual.xml";
+run_cmd ("cp $man manual/xml/.");
+foreach my $format (qw/txt xhtml xhtml-nochunks/) {
+    reportline (3, "manual - $format");
+    run_cmd ("xmlto -o manual/$format $format $man");
+}
+
+########################################################################
+# Text files
+
+reportline (2, "Converting text docs");
+
+mkdirs "doc";
+
+reportline (3, "doc TODO");
+
+open IN, "$args{bbdir}/TODO" or die "Can't open TODO: $!";
+open OUT, ">doc/TODO.html" or die "Can't open TODO.html: $!";
+
+print OUT "<html>\n";
+print OUT "<body>\n";
+print OUT "<h1>TODO</h1>\n";
+print OUT "<pre>\n";
+while (<IN>) {
+    s/&/&amp;/g;
+    s/>/&gt;/g;
+    s/</&lt;/g;
+    print OUT;
+}
+print OUT "</pre>\n";
+print OUT "</body>\n";
+print OUT "</html>\n";
+close OUT;
+close IN;
+
+foreach my $file (@textdocs) {
+    reportline (3, "doc $file");
+
+    open IN, "$args{bbdir}/doc/$file" or die "Can't open $file: $!";
+    open OUT, ">doc/$file.html" or die "Can't open $file.html: $!";
+
+    print OUT "<html>\n";
+    print OUT "<body>\n";
+    print OUT "<h1>$file</h1>\n";
+    print OUT "<pre>\n";
+    while (<IN>) {
+        s/&/&amp;/g;
+        s/>/&gt;/g;
+        s/</&lt;/g;
+        print OUT;
+    }
+    print OUT "</pre>\n";
+    print OUT "</body>\n";
+    print OUT "</html>\n";
+    close OUT;
+    close IN;
+}
+
+########################################################################
+# PODs (scripts, opers, logstyles, libs)
+
+reportline (2, "Converting script PODs");
+conv_pod (loc => "scripts", files => \@scripts);
+
+reportline (2, "Converting operation PODs");
+conv_pod (loc => "operations", files => \@opers);
+
+reportline (2, "Converting logstyle PODs");
+conv_pod (loc => "logstyles", files => \@logstyles);
+
+reportline (2, "Converting library PODs");
+conv_pod (loc => "lib", files => \@libs);
+
+sub conv_pod {
+    my %opts = @_;
+    my $loc = $opts{loc};
+    my @files = @{$opts{files}};
+
+    mkdirs $loc;
+    foreach my $file (@files) {
+	my $title = get_basename ($file);
+	reportline (3, "pod $title");
+	my $path = "$args{bbdir}/$loc/$file";
+	my $out = $file;
+	$out =~ s/\//_/g;
+	$out = "$loc/$out.html";
+	run_cmd ("pod2html --title=\"$title\" --infile=$path --outfile=$out");
+    }
+    run_cmd ("rm pod2htmd.tmp pod2htmi.tmp"); # pod2html leaves some crap behind
+}
+
+########################################################################
+# DTDs
+
+reportline (2, "Generating DTD docs");
+
+mkdirs "dtds";
+foreach my $dtd (@dtds) {
+    reportline (3, "dtd $dtd");
+    run_cmd ("dtd2html $args{bbdir}/conf/dtd/$dtd > dtds/$dtd.html");
+}
+
+########################################################################
+# sync, finalize
+
+popd; # exit outdir
+
+if ($args{scp_to}) {
+    reportline (2, "Copying docs");
+    reportline (3, "running: $args{scp_cmd} $args{scp_opts} $args{outdir} $args{scp_to}");
+    run_cmd ("$args{scp_cmd} $args{scp_opts} $args{outdir} $args{scp_to}");
+}
+
+reportline (2, "Done.");
+
+exit 0;
+
+__END__

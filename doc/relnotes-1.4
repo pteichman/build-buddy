@@ -1,0 +1,177 @@
+Ximian Build Buddy
+Version 1.4 Release Notes
+
+
+Contents
+--------
+
+1. Platform support
+2. New features in Build Buddy 1.4
+3. Installing Build Buddy
+4. Upgrading an existing installation
+5. Known issues
+6. Feedback and bug reports
+
+
+1. Platform support
+   ----------------
+
+* Tested build platforms with build-daemon support:
+
+Mandrake Linux/i586: 9.1, 9.2
+Red Hat Linux/i386: 7.2, 7.3, 8.0, 9
+Red Hat Enterprise Linux/i386: 2.1AS
+SuSE Linux Desktop/i586: 1.0
+SuSE Linux Enterprise Server/i386: 8
+SuSE Linux/i586: 8.2, 9.0
+
+* Additional platforms, manual builds only:
+
+Debian GNU/Linux/i386: potato, woody
+HP/UX: 11.0, 11i (+++)
+Mandrake Linux/i586: 8.1, 8.2, 9.0
+Red Hat Linux/i386: 6.2, 7.1
+Red Hat Enterprise Linux/i386: 3AS (+)
+Solaris/sparc: 7, 8 (+++) (++++)
+SuSE Linux Enterprise Client/i586: 1
+SuSE Linux Enterprise Server/i586: 9 (+)
+SuSE Linux/i386: 7.3, 8.0, 8.1
+
+* Node platforms (++):
+
+Mandrake Linux/i586: 9.1, 9.2
+Red Hat Linux/i386: 7.3, 8.0, 9
+Red Hat Linux Enterprise Linux/i386: 2.1AS
+
+* Master platforms (++):
+
+Red Hat Linux/i386: 7.3
+
+(+) Will get build-daemon support, pending Red Carpet 2.x releases on
+    those platforms.
+(++) SuSE node and master packages are in the works at the moment.
+(+++) No jail support.
+(++++) RPM only.
+
+
+2. New features in Build Buddy 1.4
+   -------------------------------
+
+* Jails
+
+The biggest and most user-visible change in Build Buddy 1.4 are the
+new jails.  Whereas 1.2 (and pre-1.2) jails consisted of a single tree
+with a distribution's contents, 1.4 jails also contain jail metadata.
+Moreover, several BB components are now aware of the metadata.
+Notably, jail mounts, the RCD object, and the node itself make good
+use of the new metadata.
+
+It is now possible, for example, to request a build on a jail that
+contains a particular bit of metadata (of your choosing).  There can
+be multiple metadata xml files, and they are accesible via xpath
+statements.
+
+* Logging
+
+The logging routines in BB are as big a change as the new jail
+system, but not quite as user-visible.  BB is now much better at
+logging both subcommands and internal routines.  Exceptions thrown
+after the daemon forks off worker processes *do* get reported
+properly.  This even includes jails not unpacking correctly--see the
+"bb-node-log" logfile for messages from the node itself.
+
+For those inclined to hack on BB, essentially all logging gets
+channeled through a callback in Ximian::BB::Logger.  It would be
+trivial to replace it with a callback that, instead of writing files
+to disk, sends off logs to a database.
+
+* NFS
+
+We are closer to ditching the dependency on NFS.  In fact, with some
+tweaking and a couple of caveats, it is possible to do so with 1.4.
+However, we still are not quite ready to completely do away with it
+for now.
+
+There is no longer a dependency on the "/ximian" NFS mount.  The
+functionality to install extra dependencies into the jail at job start
+time is still there, but by default the directory is
+"/nfs/release/extra-jail-deps".  In many cases, however, it is not
+necessary to add packages to directories there--instead, it is
+possible to create a new jail with the updated packages.  (Do remember
+to increase the jail's version, in the main.xml metadata file, and to
+set yourself as the jail's owner.)
+
+At the API level, it is possible to change the extra jail deps
+directory--allowing per-job settings, for example.  This is currently
+not exposed in any clients (but may be in the future).
+
+The package output and logging directories are still on nfs as
+usual.  Logging may move off of nfs soon, packages will take a bit
+longer to do so.
+
+* Authentication and Authorization
+
+The Build Buddy authentication and authorization routines have been
+improved.  It is now possible to use two separate clients concurrently
+(e.g., the webui and the bb_client command-line client).  In addition,
+authorization can be tweaked via capabilities in the database.  The
+default behavior for them is to allow an authenticated user to do
+anything, which is the same behavior for 1.2.
+
+* WebUI Improvements
+
+The Web UI has seen some improvements, though they may require a
+standards-compliant browser to view them.  The WebUI has been tested
+with the Mozilla and Mozilla-based Camino web browsers.
+
+* HTTP / FTP Transports
+
+<source> tags can now point to http and ftp sources directly, without
+the need to download them and keep them in the local repository.
+
+
+3. Installing Build Buddy
+   ----------------------
+
+(TODO)
+
+
+4. Upgrading an existing installation
+   ----------------------------------
+
+(TODO)
+
+
+5. Known Issues
+   ------------
+
+* Some logs may be written after the job is marked as failed/succeeded.
+The webui stops auto-refreshing after the job marked as such, so it is
+a good idea to refresh manually if there appear to be logs missing.
+There is a good test to find out whether the node still has logs to
+write out:  Cick on the "bb-node-log" log (the first one), and scroll
+to the bottom.  If it says "PID <nnn> exited with status <yyy>", then
+it's done.  Otherwise, refresh again in a few seconds.
+
+* The node's jail-less mode is not working at the moment.  We need to
+create a new Jail class that derives from Jail::Dir (probably), but
+actually just maps to the host system.  Some changes to Build.pm may
+also be needed - but the idea is that it should require a jail object,
+and check for specific jail features, instead of switching on
+jail/no-jail.
+
+
+6. Feedback and bug reports
+   ------------------------
+
+Please direct any questions or bugs to our mailing lists, hosted by
+Novell Forge.
+
+The Build Buddy Homepage:
+http://primates.ximian.com/~thunder/bb/
+
+The Build Buddy Novell Forge Page:
+http://forge.novell.com/modules/xfmod/project/?ximian-bb
+
+Mailing Lists:
+http://forge.novell.com/modules/xfmod/maillist/?group_id=1349

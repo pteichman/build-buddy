@@ -1,0 +1,80 @@
+#!/usr/bin/perl
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id:  $
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||"");
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+use strict;
+use POSIX;
+use File::Basename;
+
+use Ximian::Util ':all';
+use Ximian::BB::Globals;
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Target ':all';
+use Ximian::BB::Env ':all';
+use Ximian::BB::Macros ':all';
+
+########################################################################
+
+my $progname = basename $0;
+
+sub usage {
+    reportline (0, "Usage: $progname [-v verbosity] [command]");
+    exit 1;
+}
+
+my %args = parse_args_full
+    ([
+      {names => ["help",  "?",  ""], run => \&usage},
+      ]);
+
+my $bbconf = get_bb_conf ();
+my $confdirs_ref = $bbconf->{dirs}->{config}->{i};
+@Ximian::BB::Globals::confdirs = macro_replace ($confdirs_ref, [$bbconf]);
+
+my ($packsys, $target) = $args{target}?
+    split (':', $args{target}) : detect_target ();
+$Ximian::BB::Globals::packsys = $packsys;
+$Ximian::BB::Globals::target = $target;
+
+my $osconf = get_os_conf ();
+
+$Ximian::BB::Globals::confs = [$osconf, $bbconf];
+
+env_cleanup ();
+
+if (@ARGV) {
+    exec (@ARGV);
+} else {
+    exec "/bin/bash";
+}

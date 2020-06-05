@@ -1,0 +1,278 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: distribution.guess 3068 2005-12-22 03:41:13Z v_thunder $
+
+=pod
+
+=head1 NAME
+
+B<distribution.guess> - determine current OS and userspace distribution
+
+=head1 DESCRIPTION
+
+B<distribution.guess> is a wrapper for B<config.guess>, which further
+refines the guess heuristics by checking for various Linux userspace
+distributions.  It outputs a similar string to B<config.guess>.
+
+=head1 ENVIRONMENT VARIABLES
+
+=over 4
+
+=item SRCDIR
+
+Specifies the path to the root of the Ximian GNOME source tree; used
+to find a copy of B<config.guess>.
+
+=item DISTROROOT
+
+If set, determines the userspace distribution of the filesystem tree
+rooted at the specified directory instead of the root directory.
+
+=back
+
+=cut
+
+use FindBin;
+
+use strict;
+
+my $distroroot = $ENV{'DISTROROOT'} || '';
+my $tmpdir = $ENV{'TMPDIR'} || '/tmp';
+
+use vars qw($distribution $version);
+
+sub check_debian {
+    open DEBIAN, "$distroroot/etc/debian_version" or return 0;
+    $distribution = 'debian';
+    chomp ($version = <DEBIAN>);
+    close DEBIAN;
+    return 1;
+}
+
+sub check_redhat {
+    open RELEASE, "$distroroot/etc/redhat-release" or return 0;
+    $distribution = 'redhat';
+    while (<RELEASE>) {
+	chomp;
+	if (/^Red Hat Linux.*\s+([0-9.]+)\s+.*/) {
+	    $version = $1;
+	    close RELEASE;
+	    return 1;
+	}
+    }
+    close RELEASE;
+    return 0;
+}
+
+sub check_redhat_el {
+    open RELEASE, "$distroroot/etc/redhat-release" or return 0;
+    $distribution = 'rhel';
+    while (<RELEASE>) {
+	chomp;
+        if (/^Red Hat Enterprise Linux\s+([WEAS]+)\s+release\s+(\d+)/) {
+	    $version = "$2$1";
+	    close RELEASE;
+	    return 1;
+	} elsif (/^Red Hat Enterprise Linux.*\s+([0-9.WEAS]+)/
+		 or /^Red Hat Linux Advanced Server.*\s+([0-9.AS]+)/) {
+	    $version = $1;
+	    close RELEASE;
+	    return 1;
+	}
+    }
+    close RELEASE;
+    return 0;
+}
+
+sub check_fedora {
+    open RELEASE, "$distroroot/etc/fedora-release" or return 0;
+    $distribution = 'fedora';
+    while (<RELEASE>) {
+	chomp;
+	if (/^Fedora Core release\s+([0-9.]+)/) {
+	    $version = $1;
+	    close RELEASE;
+	    return 1;
+	}
+    }
+    close RELEASE;
+    return 0;
+}
+
+sub check_caldera {
+    open INSTALLED, "$distroroot/etc/.installed" or return 0;
+    while (<INSTALLED>) {
+	chomp;
+	if (/^OpenLinux-(.*)-.*/) {
+	    $distribution = 'caldera';
+	    $version = $1;
+	    close INSTALLED;
+	    return 1;
+	}
+    }
+    close INSTALLED;
+    return 0;
+}
+
+sub check_suse {
+    open RELEASE, "$distroroot/etc/SuSE-release" or return 0;
+    $distribution = 'suse';
+    $version = undef;
+    while (<RELEASE>) {
+	chomp;
+	if (/^SuSE (SLES|SLEC)-([0-9.]+)/) {
+	    $distribution = lc($1);
+	    $version = $2;
+	} elsif (/^SuSE Linux Desktop ([0-9.]+)/) {
+	    $distribution = "sld";
+	    $version = $1;
+	} elsif (/^Novell Linux Desktop ([0-9.]+)/) {
+	    $distribution = "nld";
+	    $version = $1;
+	} elsif (/^SUSE LINUX Enterprise Server ([0-9.]+)/) {
+	    $distribution = "sles";
+	    $version = $1;
+        } elsif (not defined $version and /^VERSION\s*=\s*(\S+)/) {
+	    $version = $1;
+	    close RELEASE;
+	    return 1;
+	}
+    }
+    close RELEASE;
+    return 0;
+}
+
+sub check_mandrake {
+    open MANDRAKE, "$distroroot/etc/mandrake-release" or return 0;
+    $distribution = 'mandrake';
+    while (<MANDRAKE>) {
+	chomp;
+	if (/^Linux Mandrake release (\S+)/) {
+	    $version = $1;
+	    close MANDRAKE;
+	    return 1;
+	}
+	if (/^Mandrake Linux release (\S+)/) {
+	    $version = $1;
+	    close MANDRAKE;
+	    return 1;
+	}
+    }
+    close MANDRAKE;
+    return 0;
+}
+
+sub check_playstation {
+    open PS2, "$distroroot/etc/ps2-release" or return 0;
+    $distribution = 'ps2';
+    while (<PS2>) {
+	chomp;
+	if (/^PS2 Linux release (\S+)/) {
+	    $version = $1;
+	    close PS2;
+	    return 1;
+	}
+    }
+    close PS2;
+    return 0;
+}
+
+sub check_turbolinux {
+    open RELEASE, "$distroroot/etc/turbolinux-release" or return 0;
+    $distribution = 'turbolinux';
+    while (<RELEASE>) {
+	chomp;
+	if (/release\s([0-9.]+)\s.*/) {
+	    $version = $1;
+	    close RELEASE;
+	    return 1;
+	}
+    }
+    close RELEASE;
+    return 0;
+}
+
+sub check_linuxppc {
+    open RELEASE, "$distroroot/etc/redhat-release" or return 0;
+    while (<RELEASE>) {
+	chomp;
+	if (/^LinuxPPC\s+(\S+)/) {
+	    $distribution = 'linuxppc';
+	    $version = $1;
+	    close RELEASE;
+	    return 1;
+	}
+	if (/^Linux\/PPC\s+(\S+)\s+(\S+)/) {
+	    $distribution = 'linuxppc';
+	    $version = "${1}${2}";
+	    close RELEASE;
+	    return 1;
+	}
+    }
+    close RELEASE;
+    return 0;
+}
+
+sub check_yellowdog {
+  open RELEASE, "$distroroot/etc/yellowdog-release" or return 0;
+  while (<RELEASE>) {
+	chomp;
+	  if (/^Yellow Dog Linux release\s+(\S+)/) {
+      $distribution = 'yellowdog';
+      $version = $1;
+      close RELEASE;
+      return 1;
+  	}
+  }
+  close RELEASE;
+  return 0;
+}
+
+my $guess;
+if (-x "$FindBin::RealBin/config.guess") {
+    # config.guess needs write permissions in the current directory
+    chomp (my $cwd = `pwd`);
+    chdir ($tmpdir);
+    chomp ($guess = `$FindBin::RealBin/config.guess`);
+    chdir ($cwd);
+} else {
+    print STDERR "Could not locate config.guess.\nIt should be in the same directory as distribution.guess\n";
+    exit 1;
+}
+
+# If config.guess tells us it's Linux, we need to figure out which
+# distribution it is.
+
+if ($guess =~ /linux-gnu(oldld)?$/) {
+       check_debian
+    || check_caldera
+    || check_suse
+    || check_mandrake
+    || check_playstation
+    || check_linuxppc
+    || check_yellowdog
+    || check_turbolinux
+    || check_fedora
+    || check_redhat_el # Red Hat checks must run last, because some
+    || check_redhat;   # other distros have /etc/redhat-release too
+}
+
+print $guess;
+print "-$distribution" if $distribution;
+print "-$version" if $version;
+print "\n";

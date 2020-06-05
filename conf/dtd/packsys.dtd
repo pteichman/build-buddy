@@ -1,0 +1,13 @@
+<!ELEMENT conf (packsys+)>
+
+<!ELEMENT packsys (dir*,psdata*,macro*)>
+<!ATTLIST packsys	id	CDATA #REQUIRED>
+
+<!ELEMENT dir (#PCDATA)>
+<!ATTLIST dir		id	CDATA #REQUIRED>
+
+<!ELEMENT psdata (#PCDATA)>
+<!ATTLIST psdata	id	CDATA #REQUIRED>
+
+<!ELEMENT macro (#PCDATA)>
+<!ATTLIST macro		id	CDATA #REQUIRED>

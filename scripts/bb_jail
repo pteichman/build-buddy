@@ -1,0 +1,400 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+=pod
+
+=head1 NAME
+
+B<bb_jail> - Unpack a new jail from a jail image, or another jail
+
+=head1 SYNOPSIS
+
+bb_jail [-h] <--list|--list_targets|--unpack|--destroy|--copy> <path>
+        [--sort <col>] [-u <username>] [-j <jaildir>] [-J <jaildir_src>]
+A target name can also be used with --unpack, instead of a path.
+
+=head1 DESCRIPTION
+
+B<bb_jail> can perform basic jail management.  It can list jails
+available in the default jail repository, unpack new jails from jail
+files or directories, or destroy existing jails.
+
+=cut
+
+use strict;
+
+use File::Spec::Functions 'rel2abs';
+BEGIN { rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+	$My::path = ($1||""); $My::bin = ($2||"");}
+use lib "$My::path/../lib";
+
+use Ximian::Util ':all';
+use Ximian::Run ':all';
+use Ximian::SimpleTable;
+use Ximian::BB::Jail;
+use Ximian::BB::Jail::Dir;
+use Ximian::BB::JailUtil ':all';
+
+########################################################################
+
+my %args;
+my $distro_info;
+my $packsys_info;
+
+########################################################################
+
+sub usage {
+    print <<EOF;
+bb_jail [-h] <--list|--list_targets|--unpack|--destroy> <path>
+        [--sort <col>] [-u <username>] [-j <jaildir>] [-J <jaildir_src>]
+A target name can also be used with --unpack, instead of a path.
+EOF
+    exit;
+}
+
+parse_args_set (\%args, "base", "jaildir");
+
+parse_args
+    (\%args,
+     [
+      {names => ["help", "usage", "h", "?", ""], run => \&usage},
+      {names => ["info",         "i"], type => "=s", default => ""},
+      {names => ["copy",         "c"], type => "=s", default => ""},
+      {names => ["dest_type",    "T"], type => "=s", default => "file"},
+      {names => ["unpack",       "u"], type => "=s", default => ""},
+      {names => ["destroy",      "d"], type => "=s", default => ""},
+      {names => ["list",         "l"], type => "=s", default => ""},
+      {names => ["sort"             ], type => "=s", default => "handle"},
+      {names => ["list_targets", "L"], type => "=s", default => ""},
+      {names => ["cleanup"          ], type => "!",  default => 0},
+      {names => ["cleanup_all"      ], type => "!",  default => 0},
+      {names => ["username"         ], type => "=s",
+       default => ($ENV{REAL_USER} || $ENV{USER} || "unknown")},
+      ]);
+
+########################################################################
+
+sub helper {
+    my $datum = shift;
+    if (ref $datum eq 'HASH') {
+	return "unknown" unless keys %$datum;
+	die "Broken xml!";
+    }
+    return ($datum || "unknown");
+}
+
+sub jail_info {
+    my $path = shift;
+    my $jail = Ximian::BB::Jail->load_guess (path => $path);
+    my $handle = get_basename ($jail->{path});
+    my $meta = $jail->get_metadata_tree ("main");
+    foreach my $key (qw/target jail_version owner owner_email available/) {
+	$meta->{$key} = helper ($meta->{$key});
+    }
+    print <<END;
+Jail Handle:   $handle
+Target:        $meta->{target}
+Jail Version:  $meta->{jail_version}
+Owner:         $meta->{owner}
+Owner's Email: $meta->{owner_email}
+Available:     $meta->{available}
+END
+}
+
+sub list_jails {
+    my $dir = shift;
+    my @jails = Ximian::BB::Jail->load_guess_multiple (dir => $dir);
+    my @labels = ("Jail Handle", "Target", "Jail Version",
+		  "Owner", "Available");
+    my @rows;
+    foreach my $jail (@jails) {
+	my @row = (get_basename ($jail->{path}));
+	my $meta = $jail->get_metadata_tree ("main");
+	push @row, helper ($meta->{target});
+	push @row, helper ($meta->{jail_version});
+	push @row, helper ($meta->{owner});
+	push @row, helper ($meta->{available});
+	push @rows, \@row;
+    }
+    if ($args{sort} =~ /target/i) {
+	@rows = sort {$a->[1] cmp $b->[1]} @rows;
+    } elsif ($args{sort} =~ /version/i) {
+	@rows = sort {$a->[2] cmp $b->[2]} @rows;
+    } elsif ($args{sort} =~ /owner/i) {
+	@rows = sort {$a->[3] cmp $b->[3]} @rows;
+    } elsif ($args{sort} =~ /available/i) {
+	@rows = sort {$a->[3] cmp $b->[4]} @rows;
+    }
+    my $tbl = Ximian::SimpleTable::format_table (\@labels, \@rows);
+    print $tbl, $/;
+}
+
+sub list_jail_targets {
+    my $dir = shift;
+    my @jails = Ximian::BB::Jail->load_guess_multiple (dir => $dir);
+    my @tgts = grep { $_ = [$_] } sort {$a cmp $b} jail_unique_targets (@jails);
+    my $tbl = Ximian::SimpleTable::format_table (["Available Targets"], \@tgts);
+    print $tbl, $/;
+}
+
+sub get_handle {
+    my ($jail, $destdir, $username) = @_;
+    my $base;
+    eval {
+	my $main = $jail->get_metadata_tree ("main");
+	$base = "$main->{target}-$username";
+    };
+    if ($@) {
+	$base = "unknown-target-$username";
+    }
+    return Ximian::BB::Jail::Dir->get_new_handle (dir => $destdir,
+						  base => $base);
+}
+
+sub jail_copy {
+    my ($sourcepath, $destpath) = @_;
+    my $source = Ximian::BB::Jail->load_guess (path => $sourcepath);
+    if ($args{dest_type} =~ /file/i) {
+	$sourcepath = rel2abs $sourcepath;
+	$destpath = rel2abs $destpath;
+	if ($source->isa ("Ximian::BB::Jail::File")) {
+	    # FIXME: run export? but this is faster...
+	    run_cmd ("cp $sourcepath $destpath");
+	} else {
+	    # Not terribly fast, but calling export ensures
+	    # nfs gets unmounted, etc.
+	    my $tmp = make_temp_dir (get_dirname $destpath);
+	    $source->export (path => $tmp);
+	    pushd $tmp;
+	    run_cmd ("tar czf data.tar.gz data");
+	    pushd "jail";
+
+	    # There will be an error if the jail toplevel has no dotfiles.
+	    # So we supress that, because it's stupid.  But we'll
+	    # print any other errors.
+	    my @out = get_cmd_output ({ignore_errors => 1},
+				      "tar czf ../jail.tar.gz * .[a-zA-Z]*");
+	    if (@out) {
+		if ($out[0] =~ /tar: \.\[a-zA-Z\]\*: Cannot stat/) {
+		    shift @out;
+		    if ($out[0] =~ /Error exit delayed/) {
+			shift @out;
+		    }
+		}
+		# Check if we got all the errors
+		if (@out) {
+		    die "There were errors during tar: @out ";
+		}
+	    }
+
+	    popd;
+	    popd;
+	    run_cmd ("ar -r $destpath $tmp/data.tar.gz");
+	    run_cmd ("ar -r $destpath $tmp/jail.tar.gz");
+	    run_cmd ("rm -rf $tmp");
+	}
+    } elsif ($args{dest_type} =~ /dir/i) {
+	$source->export (path => $destpath);
+    } else {
+	die "Unknown jail dest type.";
+    }
+}
+
+# First arg is either a target, or a file/directory path.  If the
+# latter, the source jail is that path directly, no searching is done.
+
+sub unpack_jail {
+    my ($target, $sourcedir, $destdir, $username) = @_;
+    my $jail;
+    if (-f $target or -d $target) {
+	$jail = Ximian::BB::Jail->load_guess (path => $target);
+    } else {
+	my @jails = jail_search_target ($sourcedir, $target);
+	$jail = shift @jails;
+	print "Warning:  Several matches for target, using \"$jail->{path}\"\n"
+	    if (scalar @jails);
+    }
+    my $handle = get_handle ($jail, $destdir, $username);
+    $jail->export (path => $handle);
+}
+
+sub destroy_jail {
+    my $path = shift;
+    my $jail = Ximian::BB::Jail->load_guess (path => $path);
+    $jail->destroy;
+}
+
+sub jaildir_cleanup {
+    my ($jaildir, $jaildir_src) = @_;
+    my @srcjails = Ximian::BB::Jail->load_guess_multiple (dir => $jaildir_src);
+
+    my %processed;
+    while (my $jail = shift @srcjails) {
+	my $meta = eval {$jail->get_metadata_tree ("main")};
+	next unless $meta;
+	next if $processed{"$meta->{owner}-$meta->{target}"};
+
+	# First, get all the jails with the same owner and target
+	my @queries = ({key => "owner", text => $meta->{owner}},
+		       {key => "target", text => $meta->{target}});
+	my @matches = @srcjails;
+	@matches = jail_grep (%$_, jails => \@matches) foreach (@queries);
+
+	# Now get the max jail version
+	my @versions;
+	foreach (@matches, $jail) {
+	    my $m = eval {$_->get_metadata_tree ("main")};
+	    next unless $m;
+	    push @versions, $m->{jail_version};
+	}
+	@versions = sort @versions;
+	my $max_version = pop @versions;
+	reportline (3, "Max version for $meta->{target}/$meta->{owner}: $meta->{jail_version}");
+
+	# Now find and destroy all the jails not equal to that version,
+	# but only if they are available and we can lock them.
+	push @queries, {key => "available", text => "yes"} unless $args{cleanup_all};
+	my @j = Ximian::BB::Jail->load_guess_multiple (dir => $jaildir);
+	@j = jail_grep (%$_, jails => \@j) foreach (@queries);
+	@j = grep {$_->lock (no_block => 1)} @j;
+
+	foreach my $jail (@j) {
+	    reportline (3, "Removing jail $jail->{path}");
+	    $jail->destroy;
+	}
+
+	# Finally, save the owner/target so we can skip it if it comes up again
+	$processed{"$meta->{owner}-$meta->{target}"} = 1;
+    }
+}
+
+########################################################################
+
+if ($args{info}) {
+    die "Error: Jail \"$args{info}\" can't be accessed."
+	unless -d $args{info} or -f $args{info};
+    jail_info ($args{info});
+
+} elsif ($args{list}) {
+    die "Error: Directory \"$args{list}\" does not exist."
+	unless -d $args{list};
+    list_jails ($args{list});
+
+} elsif ($args{list_targets}) {
+    die "Error: Directory \"$args{list_targets}\" does not exist."
+	unless -d $args{list_targets};
+    list_jail_targets ($args{list_targets});
+
+} elsif ($args{unpack}) {
+    die "Error: Source jaildir \"$args{jaildir_src}\" does not exist."
+	unless -d $args{jaildir_src};
+    die "Error: Jaildir \"$args{jaildir}\" does not exist."
+	unless -d $args{jaildir};
+    unpack_jail ($args{unpack}, $args{jaildir_src},
+		 $args{jaildir}, $args{username});
+
+} elsif ($args{copy}) {
+    die "Error: Jail \"$args{copy}\" can't be accessed."
+	unless -d $args{copy} or -f $args{copy};
+    die "Error: No destination path given." unless $ARGV[0];
+    jail_copy ($args{copy}, $ARGV[0]);
+
+} elsif ($args{destroy}) {
+    destroy_jail ($args{destroy});
+
+} elsif ($args{cleanup}) {
+    jaildir_cleanup ($args{jaildir}, $args{jaildir_src});
+} else {
+    usage;
+}
+
+exit 0;
+
+__END__
+
+=pod
+
+=head1 OPTIONS
+
+=over 4
+
+=item --list (-l) <path>
+
+List jails (both file and directory) in a directory, along with some
+basic info about each jail.
+
+=item --sort <col>
+
+When listing jails, selects the column to sort on.  Defaults to
+"handle", can also be set to "target", "version", "owner", or "email".
+
+=item --list_targets (-L) <path>
+
+List a summary of jail targets available in a directory.
+
+=item --unpack (-u) <path|target>
+
+This option accepts either a file, a directory, or a target string.
+In the case of the first two, it will load that path as a jail
+directly.  In the latter case, it will search the jails available in
+the source jaildir (defaults to /jails/source) for a jail of that
+target.  If one is found, it will use that jail as the source.
+
+=item --copy (c) <path> <destpath>
+
+This option copies the jail in <path> to a new jail in <destpath>.
+The source jail can be of any Jail type, the destination type is set
+by --dest_type (see below).
+
+=item --destroy (-d) <path>
+
+This option loads the given jail path (file or directory), and destroy
+it.
+
+=item --jaildir (-j) <path>
+
+This is the path where jails should be unpacked to.  It defaults to
+the value of <jaildir> in bb.conf, or to "/jails" if not set.
+
+=item --jaildir_src (-J) <path>
+
+This is the path where the jail sources are kept.  It defaults to the
+value of <jaildir_src> in bb.conf, or to "/jails/source" if not set.
+
+=item --username <string>
+
+This can be used to override the username.  It is only used to create
+jail handles (the name/path of the newly unpacked jail) when --unpack
+is used.
+
+=item --dest_type <string>
+
+When copying a jail, make a new jail of this type.  Types "file" and
+"dir" are supported.  The default is "file".
+
+=back
+
+=head1 AUTHORS
+
+Dan Mills <thunder@ximian.com>
+
+=head1 COPYRIGHT
+
+Copyright 2004 Novell, Inc. <distribution@ximian.com>.  All rights
+reserved.
+
+=cut

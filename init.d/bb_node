@@ -1,0 +1,54 @@
+#!/bin/sh
+#
+# description: Starts and stops the Ximian build daemon
+#
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# source our cross-platform helper functions
+if [ -f /etc/init.d/bb_utils ]; then
+    . /etc/init.d/bb_utils
+else
+    exit 0
+fi
+
+DAEMON=/usr/bin/bb_node
+OPTIONS="-d --pidfile /var/run/bb_node.pid"
+LOCKFILE=/var/lock/subsys/bb_node
+[ "debian" = $DISTRO ] && LOCKFILE=/var/lock/bb_master
+
+# Avoid using root's TMPDIR
+unset TMPDIR
+
+RETVAL=0
+
+start() {
+    start_daemon_$DISTRO $DAEMON $OPTIONS || error
+    touch $LOCKFILE || return 1
+    return 0
+}	
+
+stop() {
+    stop_daemon_$DISTRO $DAEMON || error
+    rm -f $LOCKFILE || return 1
+    return 0
+}	
+
+# Parse arguments and call the appropriate function
+dispatch $*
+
+exit $?
+ 

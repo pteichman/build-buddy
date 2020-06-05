@@ -1,0 +1,24 @@
+<!ELEMENT distribution (decl*,targetset+)>
+
+<!ELEMENT decl (macro*,list*)>
+<!ELEMENT targetset (filter,bundle+)>
+
+<!ELEMENT macro (i+)>
+<!ELEMENT list (i*,l*)>
+
+<!ELEMENT filter (i+)>
+<!ELEMENT bundle (tag?,version?,depot?,psdata?,packages?,description?)>
+<!ATTLIST bundle id CDATA #REQUIRED>
+
+<!ELEMENT tag (#PCDATA)>
+<!ELEMENT version (#PCDATA)>
+<!ELEMENT depot (#PCDATA)>
+<!ATTLIST depot type CDATA #REQUIRED>
+<!ELEMENT psdata (#PCDATA)>
+<!ELEMENT packages (i+)>
+<!ELEMENT description (h,p+)>
+
+<!ELEMENT i (#PCDATA)>
+<!ELEMENT l (#PCDATA)>
+<!ELEMENT h (#PCDATA)>
+<!ELEMENT p (#PCDATA)>

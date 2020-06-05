@@ -1,0 +1,537 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+# $Id: bb_unpack 3068 2005-12-22 03:41:13Z v_thunder $
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||""); $My::bin = $My::bin;
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+########################################################################
+
+use strict;
+use POSIX;
+use IO::File;
+use File::Basename;
+use File::Copy;
+use File::Find;
+
+use Ximian::Util ':all';
+use Ximian::Run ':all';
+use Ximian::Sighandler;
+use Ximian::BB::Globals;
+use Ximian::BB::Conf ':all';
+use Ximian::BB::Target ':all';
+use Ximian::BB::Macros ':all';
+use Ximian::BB::Module ':all';
+use Ximian::BB::Plugin ':all';
+use Ximian::BB::Env ':all';
+
+########################################################################
+
+my $progname = basename $0;
+
+my @start_times = ();
+my $clock_speed = sysconf(_SC_CLK_TCK); # for times() output
+
+my @ops = qw(clean get apply);
+my %ops = (clean => \&do_clean,
+           get => \&do_get,
+           apply => \&do_apply);
+my %plugins;
+my %args;
+
+########################################################################
+
+sub usage {
+    reportline (2, "Usage: $progname [-ck] [-v verbosity] [all|@{[join('|', @ops)]}]");
+    exit 1;
+}
+
+my $usr = ($ENV{USER} || "nobody");
+my $tmp = ($ENV{TMPDIR} || "/tmp");
+
+parse_args_set (\%args, "base");
+parse_args
+    (\%args,
+     [
+      {names => ["help",  "?",  ""], run => \&usage},
+      {names => ["patch",      "p"], type => "=s", default => ""},
+      {names => ["cvsdate",    "g"], type => "=s", default => ""},
+      {names => ["conffile",   "f"], type => "=s", default => "build-buddy.conf"},
+      {names => ["keep_existing", "k"], default => 0},
+      {names => ["clean",         "c"], default => 0},
+      ]);
+
+my @todo = @ARGV? @ARGV : qw(get apply);
+@todo = "clean" if $args{clean};
+foreach my $op (@todo) {
+    unless ($op =~ /^all|@{[join("|", @ops)]}$/) {
+	reportline (1, "Unknown operation: \"$op\"");
+	usage ();
+    }
+}
+
+my $bbconf = get_bb_conf ();
+my $confdirs_ref = $bbconf->{dirs}->{config}->{i};
+@Ximian::BB::Globals::confdirs = macro_replace ($confdirs_ref, [$bbconf]);
+
+my ($packsys, $target) = $args{target}?
+    split (':', $args{target}) : detect_target ();
+$Ximian::BB::Globals::packsys = $packsys;
+$Ximian::BB::Globals::target = $target;
+
+my $osconf = get_os_conf ();
+my $conf = get_module_conf ($args{conffile});
+
+$Ximian::BB::Globals::confs = [$conf, $osconf, $bbconf];
+
+parse_args
+    (\%args,
+     [
+      {names => ["plugindir"         ], type => "=s", default => get_dir ("plugindir")},
+      {names => ["archivedir"        ], type => "=s", default => get_dir ("archivedir")},
+      {names => ["src_archivedir"    ], type => "=s", default => get_dir ("src_archivedir")},
+      {names => ["topdir"            ], type => "=s", default => get_dir ("topdir")},
+      {names => ["srcdir"            ], type => "=s", default => get_dir ("srcdir")},
+      {names => ["builddir"          ], type => "=s", default => get_dir ("builddir")},
+      {names => ["tmpinstdir"        ], type => "=s", default => get_dir ("tmpinstdir")},
+      ]);
+
+$conf->{dir} = {};
+foreach my $d (qw/archivedir src_archivedir topdir srcdir builddir tmpinstdir/) {
+    $args{$d} = rel2abs ($args{$d});
+    $args{$d} =~ s{/$}{};
+    $conf->{dir}->{$d} = $args{$d};
+}
+foreach my $d (qw/plugindir/) {
+    $args{$d} = rel2abs ($args{$d});
+    $args{$d} =~ s{/$}{};
+    $conf->{dir}->{$d} = $args{$d};
+}
+
+load_plugins ($_) foreach (split ':', $args{plugindir});
+%plugins = get_plugins;
+
+########################################################################
+
+$conf->{unstripped} = ($args{unstripped} || $conf->{unstripped});
+$conf->{version} = ($args{version} || make_version ($conf, $plugins{source}));
+$conf->{serial} = ($args{serial} || $conf->{serial});
+$conf->{snapshot} = ($args{snapshot} || $conf->{snapshot});
+$conf->{revision} = ($args{revision} || make_rev ($conf, $plugins{source}));
+$conf->{fullversion} = full_version ($conf);
+
+########################################################################
+
+umask 022;
+
+# Set up signal handlers for clean exit.
+$SIG{INT} = $SIG{TERM} = \&Ximian::Sighandler::std_exit_handler;
+
+# Turn off buffering on stdin/stdout for happier logging
+STDIN->autoflush(1);
+STDOUT->autoflush(1);
+
+env_cleanup ();
+
+@start_times = POSIX::times(); # Start the stopwatch
+dispatch (@todo); # do the actual work
+
+exit 0;
+
+########################################################################
+
+sub dispatch {
+    my (@pre_times, @post_times);
+    foreach my $task (@_) {
+	if ($task eq 'all') {
+	    dispatch(@ops);
+	} else {
+	    report (2, <<EOF);
+ ***********************************************************************
+** $progname: begin $task stage at @{[scalar gmtime]} GMT
+*+ module: $conf->{name}
+*
+
+EOF
+	    @pre_times = POSIX::times;
+	    $ops{$task}->();
+	    @post_times = POSIX::times;
+	    my $realtime = ($post_times[0] - $pre_times[0]) / $clock_speed;
+	    my $usertime = ($post_times[3] - $pre_times[3] +
+			    $post_times[1] - $pre_times[1]) / $clock_speed;
+	    my $systime = ($post_times[4] - $pre_times[4] +
+			   $post_times[2] - $pre_times[2]) / $clock_speed;
+	    my $crealtime = ($post_times[0] - $start_times[0]) / $clock_speed;
+	    my $cusertime = ($post_times[3] - $start_times[3] +
+			     $post_times[1] - $start_times[1]) / $clock_speed;
+	    my $csystime = ($post_times[4] - $start_times[4] +
+			   $post_times[2] - $start_times[2]) / $clock_speed;
+	    report (2, <<EOF);
+*
+*  $progname: end $task stage at @{[scalar gmtime]} GMT
+*       stage times: ${realtime}s real, ${usertime}s user, ${systime}s system
+** cumulative times: ${crealtime}s real, ${cusertime}s user, ${csystime}s system
+ ***********************************************************************
+
+EOF
+	}
+    }
+}
+
+########################################################################
+
+sub get_sources {
+    my ($conf) = @_;
+    unless (exists $conf->{source}->{i} and @{$conf->{source}->{i}}) {
+        return ();
+    }
+    return @{$conf->{source}->{i}};
+}
+
+sub get_patches {
+    my ($conf) = @_;
+
+    unless (exists $conf->{patch}->{i} and @{$conf->{patch}->{i}}) {
+        return ();
+    }
+    my @patches = @{$conf->{patch}->{i}};
+
+    if ($args{patch}) {
+        if ($args{patch} eq 'none') {
+            @patches = ();
+        } else {
+            if ($args{patch} !~ /^\S+\.patch$/) {
+                reportline (1, "bb_unpack: argument to -p must end in '.patch': $args{patch}");
+                exit 1;
+            }
+            my @tmp;
+            my $found = 0;
+            foreach my $patch (@patches) {
+                push @tmp, $patch;
+                $patch =~ m/^(.*)-\d+$/;
+                if ($args{patch} eq $1) {
+                    $found = 1;
+                    last;
+                }
+            }
+            unless ($found) {
+                reportline (1, "bb_unpack: unknown patch: $args{patch}");
+                exit 1;
+            }
+            @patches = @tmp;
+        }
+    }
+
+    return @patches;
+}
+
+sub get_cvspatches {
+    my ($conf) = @_;
+    unless (exists $conf->{cvspatch}->{i} and @{$conf->{cvspatch}->{i}}) {
+        return ();
+    }
+    return @{$conf->{cvspatch}->{i}};
+}
+
+########################################################################
+
+sub do_clean {
+    foreach my $handle (get_sources ($conf),
+                        get_patches ($conf),
+                        get_cvspatches ($conf)) {
+
+        # Legacy source lines - should go away in .. a year .. or two :-/
+        unless (ref $handle) {
+            reportline (2, "Cleaning source \"$handle\"...");
+
+            my $handler = $plugins{source}->{legacy};
+            unless (exists $handler->{clean}) {
+                reportline (1, "Could not find handler for source \"$handle\"");
+                exit 1;
+            }
+            unless ($handler->{clean}->($handle, $conf, \%args)) {
+                reportline (1, "Error cleaning source \"$handle\"");
+                exit 1;
+            }
+            next;
+        }
+
+        reportline (2, "Cleaning source \"$handle->{name}\"...");
+
+        my $handler;
+        if (exists $handle->{type}
+            and exists $plugins{source}->{$handle->{type}}
+            and exists $plugins{source}->{$handle->{type}}->{clean}) {
+            $handler = $plugins{source}->{$handle->{type}}->{clean};
+        }
+        unless ($handler) {
+            reportline (1, "Could not find handler for source \"$handle->{name}\"");
+            exit 1;
+        }
+        unless ($handler->($handle, $conf, \%args)) {
+            reportline (1, "Error cleaning source \"$handle->{name}\"");
+            exit 1;
+        }
+    }
+
+    foreach my $d (qw/srcdir builddir tmpinstdir/) {
+	next unless -d $conf->{dir}->{$d};
+        reportline (2, "Unlinking $conf->{dir}->{$d}...");
+        run_cmd ("rm -rf $conf->{dir}->{$d}");
+    }
+
+    my $cwd = `pwd`;
+    chomp ($cwd);
+    if ($conf->{dir}->{topdir} eq $cwd) {
+        foreach my $f (("cvs-patched-to",
+                        "bb_rpmmacros",
+                        "bb_rpmrc",
+                        "$conf->{name}.spec",
+                        "$conf->{name}.psf",
+                        "$conf->{name}.preglob.psf",
+                        "scripts")) {
+            next unless -e $f;
+            reportline (2, "Unlinking $f...");
+            run_cmd ("rm -rf $f");
+        }
+    } else {
+        reportline (2, "Unlinking $conf->{dir}->{topdir}...");
+        run_cmd ("rm -rf $conf->{dir}->{topdir}");
+    }
+}
+
+sub do_get {
+    foreach my $d (qw/archivedir src_archivedir
+                      topdir srcdir builddir tmpinstdir/) {
+        mkdirs $conf->{dir}->{$d};
+    }
+    foreach my $handle (get_sources ($conf),
+                        get_patches ($conf),
+                        get_cvspatches ($conf)) {
+
+        # Legacy source lines
+        unless (ref $handle) {
+            reportline (2, "Getting source \"$handle\"...");
+
+            my $handler = $plugins{source}->{legacy};
+            unless (exists $handler->{get}) {
+                reportline (1, "Could not find handler for source \"$handle\"");
+                exit 1;
+            }
+            unless ($handler->{get}->($handle, $conf, \%args)) {
+                reportline (1, "Error getting source \"$handle\"");
+                exit 1;
+            }
+            next;
+        }
+
+        reportline (2, "Getting source \"$handle->{name}\"...");
+
+        my $handler;
+        if (exists $handle->{type}
+            and exists $plugins{source}->{$handle->{type}}
+            and exists $plugins{source}->{$handle->{type}}->{get}) {
+            $handler = $plugins{source}->{$handle->{type}}->{get};
+        }
+        unless ($handler) {
+            reportline (1, "Could not find handler for source \"$handle->{name}\"");
+            exit 1;
+        }
+        unless ($handler->($handle, $conf, \%args)) {
+            reportline (1, "Error getting source \"$handle->{name}\"");
+            exit 1;
+        }
+    }
+}
+
+sub do_apply {
+
+    foreach my $d (qw/archivedir src_archivedir
+                      topdir srcdir builddir tmpinstdir/) {
+        mkdirs $conf->{dir}->{$d};
+    }
+
+    # if there are multiple sources, we need to create a dir to unpack them in
+    my $dir = $conf->{dir}->{tmpinstdir};
+    if (scalar (@{$conf->{source}->{i}}) > 1) {
+	unless ($conf->{tardir}) {
+	    reportline (1, "bb_unpack: multiple sources found, but <tardir> is not set");
+	    return 0;
+	}
+	$dir = "$conf->{dir}->{tmpinstdir}/$conf->{tardir}";
+    }
+
+    if (not -d $dir) {
+	if (run_cmd ("mkdir -p $dir")) {
+	    reportline (1, "bb_unpack: failed to create directory $dir");
+            return 0;
+	}
+    }
+
+    foreach my $handle (get_sources ($conf)) {
+        # Legacy source lines
+        unless (ref $handle) {
+            reportline (2, "Applying source \"$handle\"...");
+
+            my $handler = $plugins{source}->{legacy};
+            unless (exists $handler->{apply_source}) {
+                reportline (1, "Could not find handler for source \"$handle\"");
+                exit 1;
+            }
+            unless ($handler->{apply_source}->($handle, $conf, \%args)) {
+                reportline (1, "Error applying source \"$handle\"");
+                exit 1;
+            }
+            next;
+        }
+
+        reportline (2, "Applying source \"$handle->{name}\"...");
+
+        my $handler;
+        if (exists $handle->{type}
+            and exists $plugins{source}->{$handle->{type}}
+            and exists $plugins{source}->{$handle->{type}}->{apply_source}) {
+            $handler = $plugins{source}->{$handle->{type}}->{apply_source};
+        }
+        unless ($handler) {
+            reportline (1, "Could not find handler for source \"$handle->{name}\"");
+            exit 1;
+        }
+        unless ($handler->($handle, $conf, \%args)) {
+            reportline (1, "Error applying source \"$handle->{name}\"");
+            exit 1;
+        }
+    }
+
+    foreach my $handle (get_patches ($conf)) {
+        # Legacy patch lines
+        unless (ref $handle) {
+            reportline (2, "Applying patch \"$handle\"...");
+
+            my $handler = $plugins{source}->{legacy};
+            unless (exists $handler->{apply_patch}) {
+                reportline (1, "Could not find handler for patch \"$handle\"");
+                exit 1;
+            }
+            unless ($handler->{apply_patch}->($handle, $conf, \%args)) {
+                reportline (1, "Error applying patch \"$handle\"");
+                exit 1;
+            }
+            next;
+        }
+
+        reportline (2, "Applying patch \"$handle->{name}\"...");
+
+        my $handler;
+        if (exists $handle->{type}
+            and exists $plugins{source}->{$handle->{type}}
+            and exists $plugins{source}->{$handle->{type}}->{apply_patch}) {
+            $handler = $plugins{source}->{$handle->{type}}->{apply_patch};
+        }
+        unless ($handler) {
+            reportline (1, "Could not find handler for patch \"$handle->{name}\"");
+            exit 1;
+        }
+        unless ($handler->($handle, $conf, \%args)) {
+            reportline (1, "Error applying patch \"$handle->{name}\"");
+            exit 1;
+        }
+    }
+}
+
+__END__
+
+=pod
+
+=head1 NAME
+
+bb_unpack - Prepares a source tree for B<bb_do>.
+
+=head1 SYNOPSIS
+
+bb_unpack [-ck] [-l cachedir] [-d destdir] [-p patch] [-t target] [-g checkout date] [-C dir]
+
+=head1 DESCRIPTION
+
+bb_unpack prepares a source tree for B<bb_do>.  This involves
+retrieving source from CVS or the repoman, and applying relevant
+patches.
+
+bb_unpack reads helix-build.conf in the current directory.  It
+retrieves any sources listed in the <source> tags, and applies any
+patches listed in the <patch> tags.  For modules that retrieve sources
+from cvs, bb_unpack also applies <cvspatch> patches and runs
+autogen.sh and make dist in the checked out directory.
+
+=head1 OPTIONS
+
+=over 4
+
+=item -c
+
+Clean up a previously unpacked directory.
+
+=item -k
+
+Keep existing sources.  Don't try to grab from the repository if a
+source of the same name exists in the directory.
+
+=item -d I<destdir>
+
+Unpack files into I<destdir>.
+
+=item -p I<patch>
+
+Unpack and apply through the named patch.  Can be "none".
+
+=item -t I<target>
+
+Unpack and apply patches for I<target>.  Defaults to the target of the
+environment.
+
+=item -g I<checkout-date>
+
+For cvs sources, pass I<checkout-date> as a -D option to cvs.
+
+=item -C I<dir>b
+
+Change to I<dir> before doing anything.
+
+=back
+
+=head1 AUTHOR
+
+Peter Teichman <peter@ximian.com>
+
+=head1 COPYRIGHT
+
+       Copyright 2000-2001 Ximian, Inc.
+       <distribution@ximian.com>.  All rights reserved.
+
+=cut

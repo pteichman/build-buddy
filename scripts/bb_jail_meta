@@ -1,0 +1,181 @@
+#!/usr/bin/perl -w
+
+# Copyright 2003 Ximian, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+use File::Spec::Functions 'rel2abs';
+BEGIN {
+    rel2abs($0) =~ m,^(.*)/([^/]*)$,;
+    $My::path = ($1||"");
+    $My::bin = ($2||""); $My::bin = $My::bin;
+    $My::bblib = ($ENV{BB_LIBDIR} || "**BBLIBS**");
+    require lib;
+    if (-d $My::bblib) {
+        import lib "$My::bblib";
+    } else {
+        import lib "$My::path/../lib";
+    }
+}
+
+use strict;
+
+use Ximian::Util ':all';
+use Ximian::BB::Jail;
+use Ximian::BB::Jail::Dir;
+use Ximian::BB::JailUtil ':all';
+
+########################################################################
+
+my %args;
+
+########################################################################
+
+sub usage {
+    print <<EOF;
+bb_jail_meta <-l|-L|-k <key> [-v <value>]> <jails>
+EOF
+    exit;
+}
+
+parse_args_set (\%args, "base");
+
+parse_args
+    (\%args,
+     [
+      {names => ["help", "usage", "h", "?", ""], run => \&usage},
+      {names => ["meta_id",     "m"], type => "=s", default => "main"},
+      {names => ["key",         "k"], type => "=s", default => ""},
+      {names => ["value",       "v"], type => "=s", nodefault => 1},
+      {names => ["list_all",    "l"], default => 0},
+      {names => ["list_stores", "L"], default => 0},
+      ]);
+
+########################################################################
+
+die "No jail(s) given." unless @ARGV;
+die "No key given." unless $args{key} or $args{list_all} or $args{list_stores};
+
+foreach my $path (@ARGV) {
+    eval {
+	my $jail = Ximian::BB::Jail->load_guess (path => $path);
+	if ($args{list_keys} or $args{list_all}) {
+	    my $meta = $jail->get_metadata ($args{meta_id});
+	    my ($first, @keys) = keys %{$meta->{metadata}};
+	    print "Jail:\t$path\n";
+	    print "Store:\t$args{meta_id}\n";
+	    unless ($first) {
+		print "No keys.\n";
+		next;
+	    }
+	    print "Keys:" .
+		line_up ("\t$first", "= \"$meta->{metadata}->{$first}\"\n");
+	    foreach my $key (@keys) {
+		print line_up ("\t$key",
+			       "= \"$meta->{metadata}->{$key}\"\n");
+	    }
+	} elsif ($args{list_stores}) {
+	    my ($first, @stores) = $jail->get_metadata_sets;
+	    print "Jail:\t$path\n";
+	    unless ($first) {
+		print "No stores.\n";
+		next;
+	    }
+	    print "Stores:\t$first\n";
+	    foreach my $store (@stores) {
+		print "\t$store\n";
+	    }
+	} else {
+	    my $meta = $jail->get_metadata ($args{meta_id});
+	    if ($args{value}) {
+		$meta->{metadata}->{$args{key}} = $args{value};
+		$jail->save;
+		reportline (2, "$path: $args{key} set to $args{value}");
+	    } else {
+		my $val = $meta->{metadata}->{$args{key}};
+		if ($val) {
+		    reportline (2, "$path: $args{key}: $val");
+		} else {
+		    reportline (2, "$path: $args{key} is unset.");
+		}
+	    }
+	}
+    };
+    if (my $e = $@) {
+	reportline (2, "Error: $path: $e");
+    }
+}
+
+exit 0;
+
+__END__
+
+=pod
+
+=head1 NAME
+
+B<bb_jail_meta> - View/edit jail metadata
+
+=head1 SYNOPSIS
+
+bb_jail_meta <-l|-L|-k <key> [-v <value>]> <jails>
+
+=head1 DESCRIPTION
+
+Simple tool for dealing with jail metadata.
+
+=head1 OPTIONS
+
+=over 4
+
+=item meta_id (m)
+
+Metadata ID identifying the store to operate on.  Defaults to "main".
+
+=item key (k)
+
+Key to get/set the value of.
+
+=item value (v)
+
+If left unspecified, the key (as specified by -k) is not changed, and
+only its value is printed.  If -v is specified, then it is set in the
+metadata.
+
+=item list_all (l)
+
+If this option is specified, -k and -v are ignored.  Instead, all keys
+and their values for a particular store are printed.
+
+Keys that contain complex values (lists, hashes, etc) cannot be
+displayed, however.  There are (currently) also problems in displaying
+undefined values.
+
+=item list_stores (L)
+
+If this option is specified, -k, -v, and -m are ignored.  Instead, all
+the available metadata stores in the jail are printed.
+
+=back
+
+=head1 AUTHORS
+
+Dan Mills <thunder@ximian.com>
+
+=head1 COPYRIGHT
+
+Copyright 2004 Novell, Inc. <distribution@ximian.com>.  All rights
+reserved.
+
+=cut
